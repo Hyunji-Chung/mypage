@@ -269,10 +269,10 @@ if (USE_REAL_DATA) {
     "ACTB", "GAPDH", "TUBA1B", "TUBB", "HSP90AB1", "HSPA8"
   )
 
-  stopifnot(length(named_genes) == 128)
+  stopifnot(length(named_genes) == 116)
 
   gene_names <- c(named_genes,
-                  paste0("PROT", sprintf("%05d", seq_len(n_prot - 128))))
+                  paste0("PROT", sprintf("%05d", seq_len(n_prot - 116))))
   stopifnot(length(gene_names) == n_prot)
 
   # TMT 설계: 3 배치, 각 배치 5 HC + 5 PD
