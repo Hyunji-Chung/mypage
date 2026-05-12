@@ -256,7 +256,7 @@ if (USE_REAL_DATA) {
     "ACTB", "GAPDH", "TUBA1B", "RPL13A"
   )
 
-  stopifnot(length(named_genes) == 64)
+  stopifnot(length(named_genes) == 59)
 
   gene_names <- c(named_genes,
                   paste0("PROT", sprintf("%04d", seq_len(n_prot - length(named_genes)))))
