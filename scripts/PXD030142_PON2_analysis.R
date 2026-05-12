@@ -95,8 +95,8 @@ gene_names  <- c(
   "SOD1", "SOD2", "GPX1", "CAT", "PRDX3", "PRDX5",
   # 도파민 대사
   "TH", "DDC", "SLC6A3", "MAOB",
-  # 기타
-  paste0("GENE", sprintf("%04d", seq_len(n_proteins - 55)))
+  # 기타 (named gene 47개 제외 나머지)
+  paste0("GENE", sprintf("%04d", seq_len(n_proteins - 47)))
 )
 
 # log2 LFQ intensity matrix
