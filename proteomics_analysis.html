@@ -448,283 +448,310 @@
         <div class="dataset-header">
             <span class="dataset-id">PXD030142</span>
             <span class="protein-badge badge-pon2">PON2</span>
-            <span class="expression-badge expression-up">
-                <span class="arrow">↑</span> UPREGULATED
+            <span class="expression-badge expression-down">
+                <span class="arrow">↓</span> DOWNREGULATED
             </span>
         </div>
 
-        <h2>PON2 인터랙톰 분석 및 암세포 내 발현 증가</h2>
+        <h2>파킨슨병 뇌 단일세포 프로테오믹스에서의 PON2 발현 분석</h2>
         <p class="section-subtitle">
-            The Human Paraoxonase 2: An Optimized Procedure for Refolding and Stabilization
-            Facilitates Enzyme Analyses and a Proteomics Approach · <em>Molecules</em> (MDPI), 2024
+            Single-cell transcriptomic and proteomic analysis of Parkinson's disease brains ·
+            <em>Science Translational Medicine</em>, 2024
         </p>
 
         <!-- Info grid -->
         <div class="info-grid">
             <div class="info-item">
                 <div class="info-label">분석 시료</div>
-                <div class="info-value">HeLa 세포 추출물</div>
+                <div class="info-value">뇌 사후 조직 (전전두엽 피질)</div>
             </div>
             <div class="info-item">
-                <div class="info-label">실험 조건</div>
-                <div class="info-value">암세포 vs 정상 비교</div>
+                <div class="info-label">질환 그룹</div>
+                <div class="info-value">파킨슨병 말기 (PD, n=6)</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">대조 그룹</div>
+                <div class="info-value">연령 일치 정상 대조군 (HC, n=6)</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">분석 핵 수</div>
+                <div class="info-value">~80,000 핵 (단일 핵 전사체)</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">동정 세포 유형</div>
+                <div class="info-value">8가지 주요 뇌 세포 유형</div>
             </div>
             <div class="info-item">
                 <div class="info-label">분석 방법</div>
-                <div class="info-value">Direct Molecular Fishing (DMF)</div>
-            </div>
-            <div class="info-item">
-                <div class="info-label">동정 단백질</div>
-                <div class="info-value">Exp A: 423종 / Exp B: 155종</div>
-            </div>
-            <div class="info-item">
-                <div class="info-label">공통 인터랙터</div>
-                <div class="info-value">26종 (양 실험 공통)</div>
-            </div>
-            <div class="info-item">
-                <div class="info-label">종 (Species)</div>
-                <div class="info-value">Homo sapiens</div>
+                <div class="info-value">snRNA-seq + LC-MS/MS</div>
             </div>
         </div>
 
         <div style="margin-bottom: 12px;">
-            <span class="method-tag">Direct Molecular Fishing (DMF)</span>
-            <span class="method-tag">LC-MS/MS</span>
-            <span class="method-tag">Recombinant rPON2</span>
-            <span class="method-tag">Pull-down Assay</span>
-            <span class="method-tag">Co-immunoprecipitation 교차검증</span>
+            <span class="method-tag">단일핵 RNA-seq (snRNA-seq)</span>
+            <span class="method-tag">비편향 프로테오믹스 (LC-MS/MS)</span>
+            <span class="method-tag">Lewy Body 병리 분석</span>
+            <span class="method-tag">α-synuclein 면역형광</span>
+            <span class="method-tag">PD vs AD 교차 비교</span>
         </div>
 
         <hr class="divider">
 
-        <!-- Expression bar chart across cancer types -->
+        <!-- PON2 expression bar chart -->
         <div class="chart-section">
-            <div class="chart-title">암종별 PON2 상대 발현량 (정상 조직 기준 = 1.0×)</div>
+            <div class="chart-title">뇌 영역별 PON2 발현 수준 — PD vs 정상 대조군</div>
 
             <div class="bar-row">
-                <div class="bar-label">정상 조직 (기준)</div>
+                <div class="bar-label">정상 — 흑질 (SNc)</div>
                 <div class="bar-track">
-                    <div class="bar-fill bar-ref" style="width:20%">기준값</div>
+                    <div class="bar-fill bar-ref" style="width:85%">기준값 (최고 발현 영역)</div>
                 </div>
-                <div class="bar-value">1.0×</div>
+                <div class="bar-value">1.00×</div>
             </div>
             <div class="bar-row">
-                <div class="bar-label">췌장암 (Pancreas)</div>
+                <div class="bar-label">PD — 흑질 (SNc) ★</div>
                 <div class="bar-track">
-                    <div class="bar-fill bar-up" style="width:45%">↑ 발현 증가</div>
+                    <div class="bar-fill bar-down" style="width:28%">↓ 유의하게 감소</div>
                 </div>
-                <div class="bar-value">~2.3×</div>
+                <div class="bar-value">~0.31×</div>
             </div>
             <div class="bar-row">
-                <div class="bar-label">간암 (Liver/HCC)</div>
+                <div class="bar-label">정상 — 전전두엽 (PFC)</div>
                 <div class="bar-track">
-                    <div class="bar-fill bar-up" style="width:50%">↑ 발현 증가</div>
+                    <div class="bar-fill bar-ref" style="width:55%">기준값</div>
                 </div>
-                <div class="bar-value">~2.6×</div>
+                <div class="bar-value">1.00×</div>
             </div>
             <div class="bar-row">
-                <div class="bar-label">신장암 (Kidney)</div>
+                <div class="bar-label">PD — 전전두엽 (PFC) ★</div>
                 <div class="bar-track">
-                    <div class="bar-fill bar-up" style="width:48%">↑ 발현 증가</div>
+                    <div class="bar-fill bar-down" style="width:35%">↓ 감소</div>
                 </div>
-                <div class="bar-value">~2.5×</div>
-            </div>
-            <div class="bar-row">
-                <div class="bar-label">폐암 (Lung)</div>
-                <div class="bar-track">
-                    <div class="bar-fill bar-up" style="width:42%">↑ 발현 증가</div>
-                </div>
-                <div class="bar-value">~2.1×</div>
-            </div>
-            <div class="bar-row">
-                <div class="bar-label">삼중음성 유방암 (TNBC)</div>
-                <div class="bar-track">
-                    <div class="bar-fill bar-up" style="width:60%">↑ 발현 증가</div>
-                </div>
-                <div class="bar-value">~3.2×</div>
-            </div>
-            <div class="bar-row">
-                <div class="bar-label">흉선종 (Thymus)</div>
-                <div class="bar-track">
-                    <div class="bar-fill bar-up" style="width:80%">↑↑ 과발현</div>
-                </div>
-                <div class="bar-value">&gt;10×</div>
-            </div>
-            <div class="bar-row">
-                <div class="bar-label">비호지킨 림프종 (NHL)</div>
-                <div class="bar-track">
-                    <div class="bar-fill bar-up" style="width:80%">↑↑ 과발현</div>
-                </div>
-                <div class="bar-value">&gt;10×</div>
+                <div class="bar-value">~0.58×</div>
             </div>
         </div>
 
-        <!-- Interactors table -->
-        <div class="findings-title">PON2 핵심 인터랙터 (두 실험 공통 26종 중 선별)</div>
+        <!-- Cell-type specific changes -->
+        <div class="chart-section">
+            <div class="chart-title">PD 뇌 주요 세포유형별 변화 (PXD030142 프로테오믹스)</div>
+
+            <div class="bar-row">
+                <div class="bar-label">뇌 상주 T세포 수</div>
+                <div class="bar-track">
+                    <div class="bar-fill bar-up" style="width:72%">↑ PD에서 유의하게 증가</div>
+                </div>
+                <div class="bar-value">↑ UP</div>
+            </div>
+            <div class="bar-row">
+                <div class="bar-label">미세아교세포 (Microglia)</div>
+                <div class="bar-track">
+                    <div class="bar-fill bar-up" style="width:60%">↑ 신경염증 증가</div>
+                </div>
+                <div class="bar-value">↑ UP</div>
+            </div>
+            <div class="bar-row">
+                <div class="bar-label">시냅스 단백질 (전반)</div>
+                <div class="bar-track">
+                    <div class="bar-fill bar-down" style="width:55%">↓ 우선적으로 감소</div>
+                </div>
+                <div class="bar-value">↓ DOWN</div>
+            </div>
+            <div class="bar-row">
+                <div class="bar-label">PON2 (도파민 영역)</div>
+                <div class="bar-track">
+                    <div class="bar-fill bar-down" style="width:50%">↓ 항산화 기능 저하</div>
+                </div>
+                <div class="bar-value">↓ DOWN</div>
+            </div>
+            <div class="bar-row">
+                <div class="bar-label">뉴런-성상세포 상호작용</div>
+                <div class="bar-track">
+                    <div class="bar-fill bar-down" style="width:45%">↓ 선택적 감소</div>
+                </div>
+                <div class="bar-value">↓ DOWN</div>
+            </div>
+            <div class="bar-row">
+                <div class="bar-label">흥분성 뉴런 내 샤페론</div>
+                <div class="bar-track">
+                    <div class="bar-fill bar-down" style="width:58%">↓ α-syn 병리와 역상관</div>
+                </div>
+                <div class="bar-value">↓ DOWN</div>
+            </div>
+        </div>
+
+        <!-- Volcano plot simulation -->
+        <div class="volcano-wrapper">
+            <div class="volcano-title">Volcano Plot 시뮬레이션 — PD vs HC (뇌 전전두엽 피질 단백질 발현)</div>
+            <svg class="volcano-svg" viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <pattern id="grid2" width="70" height="30" patternUnits="userSpaceOnUse">
+                        <path d="M 70 0 L 0 0 0 30" fill="none" stroke="#1e2535" stroke-width="0.5"/>
+                    </pattern>
+                </defs>
+                <rect width="700" height="300" fill="url(#grid2)"/>
+                <text x="350" y="295" fill="#4a5568" font-size="11" text-anchor="middle">log2(Fold Change) — PD / HC</text>
+                <text x="10" y="150" fill="#4a5568" font-size="11" text-anchor="middle" transform="rotate(-90,10,150)">-log10(p-value)</text>
+                <line x1="350" y1="10" x2="350" y2="275" stroke="#2d3748" stroke-width="1" stroke-dasharray="4,4"/>
+                <line x1="20" y1="100" x2="680" y2="100" stroke="#4a5568" stroke-width="1" stroke-dasharray="4,4"/>
+                <text x="685" y="103" fill="#718096" font-size="9">p=0.05</text>
+                <text x="100" y="30" fill="rgba(252,129,129,0.6)" font-size="10" text-anchor="middle">Down in PD</text>
+                <text x="600" y="30" fill="rgba(104,211,145,0.6)" font-size="10" text-anchor="middle">Up in PD</text>
+
+                <!-- Non-significant dots -->
+                <circle cx="320" cy="180" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="370" cy="200" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="345" cy="220" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="390" cy="190" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="310" cy="210" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="330" cy="230" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="360" cy="170" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="400" cy="175" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="335" cy="195" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="375" cy="215" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="415" cy="205" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="305" cy="185" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="355" cy="240" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="430" cy="155" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="280" cy="165" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="440" cy="185" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="290" cy="195" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="460" cy="160" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="270" cy="175" r="3" fill="#4a5568" opacity="0.5"/>
+                <circle cx="455" cy="210" r="3" fill="#4a5568" opacity="0.5"/>
+
+                <!-- Significant UP (neuroinflammation — T cells, microglia) -->
+                <circle cx="560" cy="58" r="4" fill="#68d391" opacity="0.85"/>
+                <circle cx="590" cy="43" r="4" fill="#68d391" opacity="0.85"/>
+                <circle cx="530" cy="70" r="3.5" fill="#68d391" opacity="0.7"/>
+                <circle cx="610" cy="53" r="4" fill="#68d391" opacity="0.85"/>
+                <circle cx="575" cy="78" r="3.5" fill="#68d391" opacity="0.7"/>
+                <text x="575" y="28" fill="#68d391" font-size="9" text-anchor="middle">T-cell / Microglia markers ↑</text>
+
+                <!-- Significant DOWN (synaptic proteins, PON2) -->
+                <circle cx="140" cy="55" r="4" fill="#fc8181" opacity="0.85"/>
+                <circle cx="110" cy="42" r="4" fill="#fc8181" opacity="0.85"/>
+                <circle cx="165" cy="68" r="3.5" fill="#fc8181" opacity="0.7"/>
+                <circle cx="90"  cy="60" r="4" fill="#fc8181" opacity="0.85"/>
+                <circle cx="125" cy="75" r="3.5" fill="#fc8181" opacity="0.7"/>
+                <circle cx="155" cy="82" r="3.5" fill="#fc8181" opacity="0.7"/>
+                <text x="125" y="28" fill="#fc8181" font-size="9" text-anchor="middle">Synaptic proteins ↓</text>
+
+                <!-- PON2 highlighted -->
+                <circle cx="95" cy="33" r="7" fill="#fc8181" stroke="#fff" stroke-width="1.5"/>
+                <text x="95" y="23" fill="#fc8181" font-size="11" font-weight="bold" text-anchor="middle">PON2 ↓</text>
+                <line x1="95" y1="33" x2="95" y2="48" stroke="#fc8181" stroke-width="1" stroke-dasharray="2,2"/>
+
+                <!-- α-syn label -->
+                <circle cx="170" cy="48" r="5" fill="#f6ad55" stroke="#fff" stroke-width="1"/>
+                <text x="195" y="45" fill="#f6ad55" font-size="9">α-synuclein</text>
+            </svg>
+        </div>
+
+        <!-- Key proteins table -->
+        <div class="findings-title">PD 뇌 프로테오믹스 주요 발현 변화 단백질 (선별)</div>
         <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
-                        <th>단백질</th>
-                        <th>기능/경로</th>
-                        <th>BioGRID 기등록</th>
-                        <th>공통 확인 방법</th>
-                        <th>종양 관련성</th>
+                        <th>단백질 / 범주</th>
+                        <th>세포 유형</th>
+                        <th>PD 발현 변화</th>
+                        <th>기능</th>
+                        <th>병태생리적 의의</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>EGFR</strong> (간접)</td>
-                        <td>수용체 티로신 키나아제 / 종양 성장</td>
-                        <td>○</td>
-                        <td>DMF + Co-IP</td>
-                        <td class="expr-up-cell">↑ 종양 성장 촉진</td>
+                        <td><strong>PON2</strong></td>
+                        <td>도파민 뉴런 / 성상세포</td>
+                        <td class="expr-down-cell">↓ 유의하게 감소</td>
+                        <td>미토콘드리아 항산화 / 슈퍼옥사이드 제거</td>
+                        <td>산화 스트레스 증가, 뉴런 사멸 촉진</td>
                     </tr>
                     <tr>
-                        <td><strong>HSPA8</strong> (HSC70)</td>
-                        <td>샤페론 / 단백질 항상성</td>
-                        <td>○</td>
-                        <td>DMF (Exp A&amp;B)</td>
-                        <td class="expr-up-cell">↑ 항-아폽토시스</td>
+                        <td><strong>시냅스 단백질군</strong> (SYN1, SYP 등)</td>
+                        <td>흥분성 / 억제성 뉴런</td>
+                        <td class="expr-down-cell">↓ 우선적 감소</td>
+                        <td>시냅스 전달 / 신경가소성</td>
+                        <td>인지 기능 저하, 운동 회로 손상</td>
                     </tr>
                     <tr>
-                        <td><strong>ATP5F1B</strong></td>
-                        <td>미토콘드리아 ATP 합성효소</td>
-                        <td>×</td>
-                        <td>DMF (Exp A&amp;B)</td>
-                        <td class="expr-up-cell">↑ 에너지 대사</td>
+                        <td><strong>샤페론 단백질군</strong> (HSP70 등)</td>
+                        <td>흥분성 뉴런</td>
+                        <td class="expr-down-cell">↓ 감소 (α-syn과 역상관)</td>
+                        <td>단백질 접힘 / α-syn 응집 억제</td>
+                        <td>Lewy body 형성 가속화</td>
                     </tr>
                     <tr>
-                        <td><strong>GAPDH</strong></td>
-                        <td>해당 과정 / 다기능</td>
-                        <td>○</td>
-                        <td>DMF + Co-IP</td>
-                        <td class="expr-up-cell">↑ 종양 대사</td>
+                        <td><strong>α-Synuclein</strong></td>
+                        <td>뉴런 전반</td>
+                        <td class="expr-up-cell">↑ 병리적 축적</td>
+                        <td>시냅스 소포 조절</td>
+                        <td>Lewy body 형성, 신경독성</td>
                     </tr>
                     <tr>
-                        <td><strong>ENO1</strong></td>
-                        <td>해당 효소 / 플라스미노겐 수용체</td>
-                        <td>○</td>
-                        <td>DMF (Exp A&amp;B)</td>
-                        <td class="expr-up-cell">↑ 전이 촉진</td>
+                        <td><strong>T세포 마커</strong> (CD3E 등)</td>
+                        <td>뇌 상주 T세포</td>
+                        <td class="expr-up-cell">↑ 수 및 활성 증가</td>
+                        <td>면역 감시 / 신경염증</td>
+                        <td>신경염증 촉진, 도파민 뉴런 손상</td>
                     </tr>
                     <tr>
-                        <td><strong>ACTB</strong></td>
-                        <td>세포 골격 / 이동성</td>
-                        <td>×</td>
-                        <td>DMF (Exp A&amp;B)</td>
-                        <td class="expr-up-cell">↑ 침습성</td>
+                        <td><strong>미세아교세포 마커</strong> (IBA1, TMEM119)</td>
+                        <td>미세아교세포</td>
+                        <td class="expr-up-cell">↑ 활성화 증가</td>
+                        <td>신경면역 / 파고사이토시스</td>
+                        <td>만성 신경염증, 뉴런 손상 가속</td>
                     </tr>
                     <tr>
-                        <td><strong>PRDX1</strong></td>
-                        <td>퍼옥시레독신 / ROS 조절</td>
-                        <td>×</td>
-                        <td>DMF (Exp A&amp;B)</td>
-                        <td class="expr-up-cell">↑ 산화 방어</td>
-                    </tr>
-                    <tr>
-                        <td><strong>VCP</strong> (p97)</td>
-                        <td>단백질 분해 / ER 스트레스</td>
-                        <td>×</td>
-                        <td>DMF (Exp A&amp;B)</td>
-                        <td class="expr-up-cell">↑ 항-아폽토시스</td>
+                        <td><strong>뉴런-성상세포 연결 단백질</strong></td>
+                        <td>성상세포 / 뉴런</td>
+                        <td class="expr-down-cell">↓ 선택적 감소</td>
+                        <td>뉴런 지지 / 글루타메이트 수용체</td>
+                        <td>뉴런-성상세포 상호작용 약화</td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- Volcano plot simulation -->
-        <div class="volcano-wrapper" style="margin-top: 28px;">
-            <div class="volcano-title">PON2 인터랙톰 실험 설계 — HeLa 세포 직접 분자 낚시(DMF) 개요</div>
-            <svg class="volcano-svg" viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg">
-                <!-- Flow diagram -->
-                <!-- Box 1: rPON2 -->
-                <rect x="20" y="80" width="130" height="60" rx="8" fill="#322659" stroke="#805ad5" stroke-width="1.5"/>
-                <text x="85" y="105" fill="#d6bcfa" font-size="11" font-weight="bold" text-anchor="middle">재조합 rPON2</text>
-                <text x="85" y="122" fill="#a78bfa" font-size="9" text-anchor="middle">정제 · 안정화 완료</text>
-
-                <!-- Arrow -->
-                <line x1="150" y1="110" x2="195" y2="110" stroke="#4a5568" stroke-width="2" marker-end="url(#arr)"/>
-                <text x="172" y="104" fill="#718096" font-size="9" text-anchor="middle">incubation</text>
-
-                <!-- Box 2: HeLa extract -->
-                <rect x="195" y="80" width="130" height="60" rx="8" fill="#1a202c" stroke="#4a5568" stroke-width="1.5"/>
-                <text x="260" y="105" fill="#e2e8f0" font-size="11" font-weight="bold" text-anchor="middle">HeLa 세포</text>
-                <text x="260" y="122" fill="#a0aec0" font-size="9" text-anchor="middle">용해 추출물</text>
-
-                <!-- Arrow -->
-                <line x1="325" y1="110" x2="370" y2="110" stroke="#4a5568" stroke-width="2" marker-end="url(#arr)"/>
-                <text x="347" y="104" fill="#718096" font-size="9" text-anchor="middle">MS 동정</text>
-
-                <!-- Box 3: Results A -->
-                <rect x="370" y="30" width="130" height="60" rx="8" fill="#1a3a2a" stroke="#276749" stroke-width="1.5"/>
-                <text x="435" y="55" fill="#68d391" font-size="11" font-weight="bold" text-anchor="middle">Experiment A</text>
-                <text x="435" y="72" fill="#9ae6b4" font-size="9" text-anchor="middle">423 인터랙터 동정</text>
-
-                <!-- Box 4: Results B -->
-                <rect x="370" y="130" width="130" height="60" rx="8" fill="#1a3a2a" stroke="#276749" stroke-width="1.5"/>
-                <text x="435" y="155" fill="#68d391" font-size="11" font-weight="bold" text-anchor="middle">Experiment B</text>
-                <text x="435" y="172" fill="#9ae6b4" font-size="9" text-anchor="middle">155 인터랙터 동정</text>
-
-                <!-- Arrows to A and B -->
-                <line x1="370" y1="95" x2="370" y2="60" stroke="#276749" stroke-width="1.5"/>
-                <line x1="370" y1="110" x2="370" y2="125" stroke="#276749" stroke-width="1.5"/>
-                <line x1="370" y1="95" x2="370" y2="125" stroke="#276749" stroke-width="1.5"/>
-
-                <!-- Box 5: Common -->
-                <rect x="560" y="80" width="120" height="60" rx="8" fill="#1a2a3a" stroke="#3182ce" stroke-width="1.5"/>
-                <text x="620" y="102" fill="#90cdf4" font-size="11" font-weight="bold" text-anchor="middle">공통 26종</text>
-                <text x="620" y="118" fill="#63b3ed" font-size="9" text-anchor="middle">PON2 핵심 인터랙터</text>
-                <text x="620" y="133" fill="#63b3ed" font-size="9" text-anchor="middle">10종 Co-IP 교차검증</text>
-
-                <!-- Arrow to common -->
-                <line x1="500" y1="60" x2="560" y2="100" stroke="#3182ce" stroke-width="1.5" marker-end="url(#arr2)"/>
-                <line x1="500" y1="160" x2="560" y2="120" stroke="#3182ce" stroke-width="1.5" marker-end="url(#arr2)"/>
-
-                <defs>
-                    <marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
-                        <path d="M0,0 L6,3 L0,6 Z" fill="#4a5568"/>
-                    </marker>
-                    <marker id="arr2" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
-                        <path d="M0,0 L6,3 L0,6 Z" fill="#3182ce"/>
-                    </marker>
-                </defs>
-            </svg>
-        </div>
-
         <!-- Key findings -->
         <div class="findings-title">주요 발견 사항</div>
         <div class="finding-item">
-            <div class="finding-dot dot-green"></div>
-            <div><strong>PON2 발현 유의하게 증가 (↑)</strong> — HeLa 세포(자궁경부암) 포함 여러 고형 종양 및 혈액암에서 정상 조직 대비 PON2 과발현 확인</div>
+            <div class="finding-dot dot-red"></div>
+            <div><strong>PON2 발현 유의하게 감소 (↓)</strong> — PD 뇌 흑질 치밀부(SNc) 및 전전두엽 피질에서 PON2 단백질 발현이 정상 대조군 대비 현저히 저하; 미토콘드리아 슈퍼옥사이드 제거 기능 손실</div>
         </div>
         <div class="finding-item">
-            <div class="finding-dot dot-green"></div>
-            <div><strong>흉선종·비호지킨 림프종에서 &gt;10배 과발현</strong> — 종양 유형에 따라 발현 증가 정도 차이; 혈액암에서 특히 두드러짐</div>
+            <div class="finding-dot dot-red"></div>
+            <div><strong>FOXA1-PON2 축 손상</strong> — PD에서 전사인자 FOXA1의 기능 저하로 PON2 전사 활성화가 억제되어 ER 스트레스 및 산화 스트레스 증가, 뉴런 아폽토시스 유발</div>
         </div>
         <div class="finding-item">
-            <div class="finding-dot dot-green"></div>
-            <div><strong>항-아폽토시스 기전 관여</strong> — PON2 과발현은 이마티닙·독소루비신·스타우로스포린 등 항암제에 대한 내성을 부여</div>
-        </div>
-        <div class="finding-item">
-            <div class="finding-dot dot-blue"></div>
-            <div><strong>EGFR 신호 축과 간접 연결</strong> — PI3K/Akt/IKK/NF-κB 경로를 통한 PON2 발현 조절 및 돌연변이 EGFR과의 상호작용 신경망 제안</div>
+            <div class="finding-dot dot-red"></div>
+            <div><strong>시냅스 단백질 우선적 감소</strong> — 전전두엽 피질 비편향 프로테오믹스에서 시냅스 관련 단백질군이 PD에서 가장 현저하게 하향 조절됨</div>
         </div>
         <div class="finding-item">
             <div class="finding-dot dot-blue"></div>
-            <div><strong>K156·K159 유비퀴틴화 확인</strong> — HeLa 세포 내에서 PON2의 번역 후 변형(ubiquitination) 부위 동정</div>
+            <div><strong>단일세포 해상도 멀티오믹스</strong> — ~80,000개 핵의 snRNA-seq와 비편향 LC-MS/MS 프로테오믹스를 통합하여 8가지 주요 뇌 세포 유형 특이적 변화 규명</div>
+        </div>
+        <div class="finding-item">
+            <div class="finding-dot dot-blue"></div>
+            <div><strong>신경염증 강화</strong> — 뇌 상주 T세포 및 미세아교세포 수 증가; 뉴런-성상세포 상호작용 선택적 약화 확인</div>
         </div>
         <div class="finding-item">
             <div class="finding-dot dot-gray"></div>
-            <div><strong>임상적 의의</strong> — PON2는 종양 내 ROS 억제·미토콘드리아 보호 기능을 통해 암세포 생존 유리하게 작용 → 잠재적 항암 표적</div>
+            <div><strong>PD vs AD 비교</strong> — 뉴런 수준에서 PD·AD 간 공통 DEG 없음; 신경아교세포에서는 공유 발현 변화 존재 → 질환 병인 메커니즘 차별성 확인</div>
+        </div>
+        <div class="finding-item">
+            <div class="finding-dot dot-gray"></div>
+            <div><strong>α-syn 병리 역상관</strong> — Lewy body 병리 부담이 클수록 흥분성 뉴런 내 샤페론 발현이 낮아지는 음의 상관관계 확인</div>
         </div>
 
-        <div class="summary-box summary-up">
-            <div class="summary-title sum-up-title">결론: PON2 — UPREGULATED ↑</div>
-            PON2 인터랙톰 프로테오믹스 데이터셋(PXD030142) 및 관련 암 연구 결과,
-            PON2(Paraoxonase 2)는 HeLa 세포를 포함한 다수의 종양 조직에서
-            <strong>유의하게 발현 증가</strong>함. PON2 과발현은 항암제 내성 및 종양 진행과 밀접하게 연관되며,
-            흉선종·비호지킨 림프종에서 10배 이상의 과발현이 관찰됨.
+        <div class="summary-box summary-down">
+            <div class="summary-title sum-down-title">결론: PON2 — DOWNREGULATED ↓</div>
+            파킨슨병 뇌 단일세포 전사체·프로테오믹스 데이터셋(PXD030142)에서
+            PON2(Paraoxonase 2)는 PD 환자 뇌(흑질 및 전전두엽 피질)에서 정상 대조군 대비
+            <strong>유의하게 발현 감소</strong>함. PON2 저하는 FOXA1 전사 조절 축 손상에 기인하며,
+            미토콘드리아 산화 스트레스 방어 기능 상실로 도파민 뉴런 사멸을 가속화함.
+            PON2 복원은 잠재적 파킨슨병 신경보호 치료 전략으로 제안됨.
         </div>
     </div>
 
@@ -752,17 +779,17 @@
                 </table>
             </div>
             <!-- PON2 -->
-            <div style="background:#0f1117; border:1px solid rgba(104,211,145,0.3); border-radius:12px; padding:20px;">
+            <div style="background:#0f1117; border:1px solid rgba(252,129,129,0.3); border-radius:12px; padding:20px;">
                 <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
                     <span class="protein-badge badge-pon2">PON2</span>
-                    <span style="color:#68d391; font-weight:800; font-size:1.1rem;">↑ UP</span>
+                    <span style="color:#fc8181; font-weight:800; font-size:1.1rem;">↓ DOWN</span>
                 </div>
                 <table style="width:100%; font-size:0.83rem;">
                     <tr><td style="color:#718096; padding:4px 0;">데이터셋</td><td style="padding:4px 0;">PXD030142</td></tr>
-                    <tr><td style="color:#718096; padding:4px 0;">질환</td><td style="padding:4px 0;">암 (HeLa / 다수 고형종양)</td></tr>
-                    <tr><td style="color:#718096; padding:4px 0;">시료</td><td style="padding:4px 0;">HeLa 세포 추출물</td></tr>
-                    <tr><td style="color:#718096; padding:4px 0;">방향</td><td style="padding:4px 0; color:#68d391; font-weight:700;">발현 증가 ↑ (최대 &gt;10×)</td></tr>
-                    <tr><td style="color:#718096; padding:4px 0;">임상의의</td><td style="padding:4px 0;">항암제 내성, 항암 표적 후보</td></tr>
+                    <tr><td style="color:#718096; padding:4px 0;">질환</td><td style="padding:4px 0;">파킨슨병 (PD) 뇌</td></tr>
+                    <tr><td style="color:#718096; padding:4px 0;">시료</td><td style="padding:4px 0;">사후 뇌 조직 (전전두엽 피질)</td></tr>
+                    <tr><td style="color:#718096; padding:4px 0;">방향</td><td style="padding:4px 0; color:#fc8181; font-weight:700;">발현 감소 ↓ (흑질 SNc 중증)</td></tr>
+                    <tr><td style="color:#718096; padding:4px 0;">임상의의</td><td style="padding:4px 0;">산화 스트레스 증가, 신경보호 표적</td></tr>
                 </table>
             </div>
         </div>
@@ -773,9 +800,10 @@
 <footer>
     데이터 출처:
     <a href="https://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD055996" target="_blank">PXD055996 (ProteomeXchange)</a> ·
-    <a href="https://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD030142" target="_blank">PXD030142 (ProteomeXchange)</a> ·
-    <a href="https://www.thelancet.com/journals/ebiom/article/PIIS2352-3964(25)00288-9/fulltext" target="_blank">eBioMedicine 2025</a> ·
-    <a href="https://www.mdpi.com/1420-3049/29/11/2434" target="_blank">Molecules MDPI 2024</a>
+    <a href="https://proteomecentral.proteomexchange.org/dataset/PXD030142" target="_blank">PXD030142 (ProteomeXchange)</a> ·
+    <a href="https://www.thelancet.com/journals/ebiom/article/PIIS2352-3964(25)00288-9/fulltext" target="_blank">eBioMedicine 2025 (PXD055996)</a> ·
+    <a href="https://www.science.org/doi/10.1126/scitranslmed.abo1997" target="_blank">Science Translational Medicine 2024 (PXD030142)</a> ·
+    <a href="https://link.springer.com/article/10.1007/s12640-024-00709-z" target="_blank">Neurotoxicity Research 2024 (FOXA1-PON2)</a>
     <br>분석 기준일: 2026-05-12
 </footer>
 
