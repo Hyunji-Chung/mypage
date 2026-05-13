@@ -212,121 +212,119 @@ cat(sprintf("  NS                           : %d\n", sum(res$direction == "NS"))
 # ── 6. Volcano Plot ───────────────────────────────────────────────────────────
 cat("\n=== Volcano Plot 생성 ===\n")
 
+COL_PON1   <- "#FF4500"
+COL_DOWN   <- "#1F8B4C"
+COL_UP     <- "#3366CC"
+BASE_THEME <- theme_classic(base_size = 13) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10, color = "grey40"),
+    axis.title    = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
 # 라벨 표시 단백질: PON1 + top DEPs
 top_up   <- res %>% filter(direction == "UP")   %>% slice_min(padj, n = 8)
 top_down <- res %>% filter(direction == "DOWN")  %>% slice_min(padj, n = 8)
 label_genes <- unique(c("PON1", top_up$Gene, top_down$Gene))
 
-res_plot <- res %>%
+plot_dat <- res %>%
   mutate(
-    label      = ifelse(Gene %in% label_genes, Gene, NA_character_),
-    color_cat  = case_when(
-      Gene == "PON1"         ~ "PON1",
-      direction == "UP"      ~ "UP",
-      direction == "DOWN"    ~ "DOWN",
-      TRUE                   ~ "NS"
-    ),
-    pt_size    = ifelse(Gene == "PON1", 4.5, 2),
-    pt_alpha   = ifelse(Gene == "PON1", 1.0,
-                        ifelse(direction == "NS", 0.35, 0.75))
+    log10p   = neg_log10_p,
+    is_PON1  = Gene == "PON1",
+    label_me = Gene %in% label_genes
   )
 
-color_vals <- c(
-  "PON1" = "#FF4500",   # 강조 — 주황빨강
-  "UP"   = "#2196F3",   # 파랑
-  "DOWN" = "#E91E63",   # 핑크
-  "NS"   = "#9E9E9E"    # 회색
-)
-size_vals  <- c("PON1" = 4.5, "UP" = 2, "DOWN" = 2, "NS" = 1.5)
+p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
 
-p1 <- ggplot(res_plot, aes(x = log2FC, y = neg_log10_p,
-                            color = color_cat, size = color_cat)) +
-  # 임계선
+  # NS background
+  geom_point(data = filter(plot_dat, direction == "NS"),
+             color = "grey72", size = 1.0, alpha = 0.30) +
+
+  # DEP DOWN
+  geom_point(data = filter(plot_dat, direction == "DOWN" & !is_PON1),
+             color = COL_DOWN, size = 1.8, alpha = 0.75) +
+
+  # DEP UP
+  geom_point(data = filter(plot_dat, direction == "UP" & !is_PON1),
+             color = COL_UP, size = 1.8, alpha = 0.75) +
+
+  # PON1 — 최상위 레이어, 다이아몬드
+  geom_point(data = filter(plot_dat, is_PON1),
+             color = COL_PON1, size = 5.5, shape = 18) +
+
+  # 기준선
   geom_hline(yintercept = -log10(0.05), linetype = "dashed",
-             color = "#757575", linewidth = 0.5) +
+             color = "grey45", linewidth = 0.55) +
   geom_vline(xintercept = c(-0.5, 0.5), linetype = "dashed",
-             color = "#757575", linewidth = 0.5) +
-  # 배경 영역 색칠
-  annotate("rect", xmin = -Inf, xmax = -0.5,
-           ymin = -log10(0.05), ymax = Inf,
-           fill = "#E91E63", alpha = 0.05) +
-  annotate("rect", xmin = 0.5, xmax = Inf,
-           ymin = -log10(0.05), ymax = Inf,
-           fill = "#2196F3", alpha = 0.05) +
-  # 산점도
-  geom_point(alpha = res_plot$pt_alpha) +
-  # PON1 강조 테두리
-  geom_point(data = filter(res_plot, Gene == "PON1"),
-             shape = 21, size = 5.5,
-             color = "#FF4500", fill = "#FF4500", stroke = 1.8) +
-  # 라벨
-  geom_text_repel(
-    aes(label = label),
-    size            = 3.2,
-    fontface        = ifelse(res_plot$Gene == "PON1", "bold", "plain"),
-    max.overlaps    = 20,
-    box.padding     = 0.4,
-    point.padding   = 0.3,
-    min.segment.length = 0.2,
-    segment.color   = "#616161",
-    segment.linewidth = 0.4,
-    na.rm           = TRUE
+             color = "grey45", linewidth = 0.55) +
+
+  # 일반 DEP 라벨
+  geom_label_repel(
+    data          = filter(plot_dat, label_me & !is_PON1),
+    aes(label     = Gene),
+    size          = 2.8,
+    fill          = "white",
+    color         = "grey25",
+    box.padding   = 0.35,
+    point.padding = 0.25,
+    segment.color = "grey55",
+    segment.size  = 0.35,
+    max.overlaps  = 20
   ) +
-  # PON1 전용 굵은 라벨
-  geom_text_repel(
-    data            = filter(res_plot, Gene == "PON1"),
-    aes(label       = Gene),
-    size            = 4.5,
-    fontface        = "bold",
-    color           = "#FF4500",
-    box.padding     = 0.6,
-    point.padding   = 0.5,
-    segment.color   = "#FF4500",
-    segment.linewidth = 0.8,
-    nudge_x         = -0.4,
-    nudge_y         =  0.5
+
+  # PON1 전용 라벨 (주황 배경)
+  geom_label_repel(
+    data          = filter(plot_dat, is_PON1),
+    aes(label     = Gene),
+    size          = 4.0,
+    fontface      = "bold",
+    fill          = "#FFF3E0",
+    color         = COL_PON1,
+    box.padding   = 0.6,
+    point.padding = 0.5,
+    segment.color = COL_PON1,
+    segment.size  = 0.6,
+    nudge_y       = 1.2,
+    max.overlaps  = Inf
   ) +
-  scale_color_manual(
-    values = color_vals,
-    labels = c("PON1" = "PON1 (관심 단백질)",
-               "UP"   = "UP (padj < 0.05, |log2FC| > 0.5)",
-               "DOWN" = "DOWN (padj < 0.05, |log2FC| > 0.5)",
-               "NS"   = "Not Significant"),
-    name   = ""
-  ) +
-  scale_size_manual(values = size_vals, guide = "none") +
-  scale_x_continuous(breaks = seq(-3, 3, 1), limits = c(-3.5, 3.5)) +
-  scale_y_continuous(expand = expansion(mult = c(0.02, 0.06))) +
+
+  scale_x_continuous(limits = c(-4.2, 4.2), breaks = seq(-4, 4, 1)) +
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.08))) +
+
+  # 방향 주석
+  annotate("text", x = -3.9, y = Inf, label = "DOWN in PD",
+           hjust = 0, vjust = 1.8, color = COL_DOWN,
+           size = 3.8, fontface = "bold") +
+  annotate("text", x =  3.9, y = Inf, label = "UP in PD",
+           hjust = 1, vjust = 1.8, color = COL_UP,
+           size = 3.8, fontface = "bold") +
+
+  # PON1 색상 범례 주석
+  annotate("point", x = -3.9, y = -Inf,
+           color = COL_PON1, size = 3.5, shape = 18, vjust = -1) +
+  annotate("text",  x = -3.5, y = -Inf,
+           label = "PON1", color = COL_PON1,
+           size = 3.5, fontface = "bold", hjust = 0, vjust = -0.3) +
+
   labs(
-    title    = "Volcano Plot — PXD055996",
-    subtitle = "PD vs HC · CSF Proteomics · eBioMedicine 2025\nPON1 in Parkinson's disease cerebrospinal fluid",
-    x        = expression(log[2]~"Fold Change (PD / HC)"),
-    y        = expression(-log[10]~"(p-value)")
+    title    = "Volcano Plot — Substantia Nigra Proteomics (PD vs. HC)",
+    subtitle = paste0(
+      "PXD055996 | eBioMedicine 2025 | CSF Proteomics | n=40/group\n",
+      sprintf("DEP: %d UP ↑  /  %d DOWN ↓  (adj.P<0.05, |log2FC|>0.5)",
+              sum(res$direction == "UP"), sum(res$direction == "DOWN"))
+    ),
+    x = expression(log[2]~"Fold Change (PD / HC)"),
+    y = expression(-log[10]~italic(P)-value)
   ) +
-  theme_bw(base_size = 13) +
-  theme(
-    plot.title       = element_text(face = "bold", size = 15),
-    plot.subtitle    = element_text(color = "#424242", size = 10),
-    legend.position  = "bottom",
-    legend.text      = element_text(size = 9),
-    panel.grid.minor = element_blank(),
-    panel.border     = element_rect(color = "#BDBDBD"),
-    plot.background  = element_rect(fill = "white", color = NA)
-  ) +
-  # 통계 주석
-  annotate("text", x = -3.2, y = max(res_plot$neg_log10_p) * 0.95,
-           label = paste0("DOWN: ", sum(res$direction == "DOWN")),
-           color = "#E91E63", size = 3.5, hjust = 0, fontface = "bold") +
-  annotate("text", x =  3.2, y = max(res_plot$neg_log10_p) * 0.95,
-           label = paste0("UP: ", sum(res$direction == "UP")),
-           color = "#2196F3", size = 3.5, hjust = 1, fontface = "bold")
+  BASE_THEME
 
 # 저장
 dir.create("output", showWarnings = FALSE)
 ggsave("output/PXD055996_PON1_volcano.pdf",
-       plot = p1, width = 10, height = 8, dpi = 300)
+       plot = p1, width = 9, height = 7.5, dpi = 300)
 ggsave("output/PXD055996_PON1_volcano.png",
-       plot = p1, width = 10, height = 8, dpi = 300, bg = "white")
+       plot = p1, width = 9, height = 7.5, dpi = 300, bg = "white")
 cat("Volcano plot 저장: output/PXD055996_PON1_volcano.pdf / .png\n")
 
 # ── 7. PON1 발현 BoxPlot ──────────────────────────────────────────────────────
