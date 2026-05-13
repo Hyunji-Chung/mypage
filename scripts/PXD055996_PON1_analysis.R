@@ -6,8 +6,9 @@
 #           proteomics analysis
 # Journal : eBioMedicine, 2025
 # Tissue  : Cerebrospinal Fluid (CSF)
-# Design  : PD (n=40 discovery + n=80 validation) vs HC (n=40 + n=80)
-# Method  : LC-MS/MS (DDA) + Parallel Reaction Monitoring (PRM)
+# Design  : PD (n=40 discovery) vs HC (n=40) — discovery cohort only
+# Method  : Orbitrap Fusion Lumos + 11-plex TMT (8 batches)
+#           Each batch: 5 HC + 5 PD + 1 reference pool (11th channel)
 # =============================================================================
 
 # ── 1. Package loading ────────────────────────────────────────────────────────
@@ -15,13 +16,13 @@ suppressPackageStartupMessages({
   if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 
-  pkgs_bioc <- c("limma", "EnhancedVolcano")
+  pkgs_bioc <- c("limma")
   for (p in pkgs_bioc) {
     if (!requireNamespace(p, quietly = TRUE))
       BiocManager::install(p, ask = FALSE)
   }
 
-  pkgs_cran <- c("tidyverse", "ggrepel", "RColorBrewer", "scales",
+  pkgs_cran <- c("tidyverse", "ggrepel", "scales",
                  "ggplot2", "dplyr", "tibble", "readr", "httr", "jsonlite")
   for (p in pkgs_cran) {
     if (!requireNamespace(p, quietly = TRUE))
@@ -29,14 +30,15 @@ suppressPackageStartupMessages({
   }
 
   library(limma)
-  library(EnhancedVolcano)
   library(tidyverse)
   library(ggrepel)
-  library(RColorBrewer)
   library(scales)
   library(httr)
   library(jsonlite)
 })
+
+dir.create("data",   showWarnings = FALSE, recursive = TRUE)
+dir.create("output", showWarnings = FALSE, recursive = TRUE)
 
 # ── 2. PRIDE API metadata query ───────────────────────────────────────────────
 cat("=== PXD055996 Dataset Metadata ===\n")
@@ -58,128 +60,129 @@ if (!is.null(meta)) {
 }
 
 # ── 3. Data preparation ───────────────────────────────────────────────────────
-# For real analysis: download MaxQuant proteinGroups.txt or
-# Proteome Discoverer output from PRIDE FTP:
+# For real analysis: download Proteome Discoverer output from PRIDE FTP
+#   (TMT reporter intensity corrected columns)
 #
 # ftp_base <- "ftp://ftp.pride.ebi.ac.uk/pride/data/archive/"
-# download.file(paste0(ftp_base, "PXD055996/proteinGroups.txt"), "proteinGroups.txt")
-# raw <- read_tsv("proteinGroups.txt")
+# download.file(paste0(ftp_base, "PXD055996/proteinGroups.txt"),
+#               "data/PXD055996_proteinGroups.txt")
+# raw <- read_tsv("data/PXD055996_proteinGroups.txt")
 #
-# Below: simulated dataset based on literature values (3,683 proteins identified)
+# Below: simulated dataset based on literature values (eBioMedicine 2025)
+#   3,683 unique proteins identified; discovery cohort: 40 PD / 40 HC
+#   8 batches × 11-plex TMT; 11th channel = common reference pool
+
+cat("[Offline simulation mode]\n")
+cat("Based on: Oh et al., eBioMedicine 2025 (PXD055996)\n\n")
 
 set.seed(2025)
 n_proteins <- 3683
-n_PD  <- 40   # discovery cohort
+n_PD  <- 40
 n_HC  <- 40
+N     <- n_PD + n_HC   # 80 biological samples
+n_batches <- 8         # 8 TMT batches, each with 5 HC + 5 PD + 1 ref
 
-protein_ids <- paste0("P", sprintf("%05d", seq_len(n_proteins)))
-gene_names  <- c(
-  # Biomarker candidates confirmed in the paper
-  "PON1", "OMD", "CD44", "VGF", "PRL", "MAN2B1",
+# TMT samples: 8 batches × (5 HC + 5 PD); reference channel excluded
+batch_labels <- rep(paste0("B", 1:n_batches), each = 10)
+group_labels <- rep(c(rep("HC", 5), rep("PD", 5)), n_batches)
+sample_ids   <- paste0(group_labels, "_", batch_labels, "_",
+                       sprintf("%02d", rep(c(1:5, 1:5), n_batches)))
+
+# Key protein names (biomarkers from paper + biological context)
+named_genes <- c(
+  "PON1",
+  # Validated biomarkers (Oh et al. 2025, 8 proteins)
+  "VSTM2A", "VGF", "SCG2", "PI16", "OMD", "FAM3C", "EPHA4", "CCK",
+  # Additional CSF proteins (literature-based)
   "APOA1", "APOE", "CLU", "ITIH4", "SERPINA1", "CP",
-  "HSPA8", "YWHAZ", "ENO2", "ALDOA", "GAPDH", "PKM",
-  # Remaining proteins
-  paste0("GENE", sprintf("%04d", seq_len(n_proteins - 18)))
+  # Neurodegeneration-related
+  "SNCA", "UCHL1", "PARK7", "LRRK2",
+  # Neuronal
+  "NEFL", "NEFM", "NEFH", "ENO2", "SYP",
+  # Inflammation / glia
+  "GFAP", "VIM", "CD44", "S100B", "AIF1",
+  # Complement
+  "C1QA", "C1QB", "C1QC", "C3", "CFH",
+  # Lysosomal
+  "CTSD", "CTSS", "GRN", "LAMP1", "PSAP",
+  # Housekeeping
+  "ACTB", "GAPDH", "TUBA1B", "TUBB", "HSPA8", "YWHAZ", "ALDOA", "PKM",
+  "HSP90AB1", "MAN2B1"
+)
+n_named <- length(named_genes)
+cat(sprintf("named_genes count: %d\n", n_named))
+
+gene_names <- c(named_genes,
+                paste0("PROT", sprintf("%05d", seq_len(n_proteins - n_named))))
+stopifnot(length(gene_names) == n_proteins)
+
+is_pd <- group_labels == "PD"
+is_hc <- group_labels == "HC"
+
+# Base TMT intensity matrix (log2 reporter intensities)
+mat_base <- matrix(
+  rnorm(n_proteins * N, mean = 24, sd = 1.8),
+  nrow  = n_proteins,
+  dimnames = list(gene_names, sample_ids)
 )
 
-# LFQ intensity matrix in log2 scale
-intensity_matrix <- matrix(
-  rnorm(n_proteins * (n_PD + n_HC), mean = 25, sd = 2),
-  nrow = n_proteins,
-  dimnames = list(gene_names,
-                  c(paste0("PD_", seq_len(n_PD)),
-                    paste0("HC_", seq_len(n_HC))))
-)
-
-# Apply literature-based effect sizes to known biomarker proteins
-# PON1: significantly decreased in PD (fold change ~0.48, p < 0.001)
-effect_down <- list(
-  PON1     = -1.06,   # log2(0.48) ≈ -1.06
-  OMD      = -0.90,
-  APOA1    = -0.70,
-  CLU      = -0.55,
-  SERPINA1 = -0.60
-)
-effect_up <- list(
-  CD44   =  0.85,
-  VGF    =  1.10,
-  PRL    =  0.95,
-  MAN2B1 =  0.78,
-  ITIH4  =  0.65,
-  CP     =  0.72
-)
-
-for (gene in names(effect_down)) {
-  if (gene %in% rownames(intensity_matrix)) {
-    idx <- which(rownames(intensity_matrix) == gene)
-    pd_cols <- grep("^PD_", colnames(intensity_matrix))
-    intensity_matrix[idx, pd_cols] <-
-      intensity_matrix[idx, pd_cols] + effect_down[[gene]] +
-      rnorm(length(pd_cols), 0, 0.3)
-  }
-}
-for (gene in names(effect_up)) {
-  if (gene %in% rownames(intensity_matrix)) {
-    idx <- which(rownames(intensity_matrix) == gene)
-    pd_cols <- grep("^PD_", colnames(intensity_matrix))
-    intensity_matrix[idx, pd_cols] <-
-      intensity_matrix[idx, pd_cols] + effect_up[[gene]] +
-      rnorm(length(pd_cols), 0, 0.3)
-  }
+# Batch effects (mimicking systematic TMT batch-to-batch variation)
+batch_offsets <- c(0, 0.28, -0.22, 0.15, -0.18, 0.32, -0.10, 0.20)
+for (b in seq_len(n_batches)) {
+  cols <- which(batch_labels == paste0("B", b))
+  mat_base[, cols] <- mat_base[, cols] + batch_offsets[b]
 }
 
-# Missing value injection (~5% random, similar to real LFQ data)
-missing_mask <- matrix(runif(n_proteins * (n_PD + n_HC)) < 0.05,
-                       nrow = n_proteins)
-intensity_matrix[missing_mask] <- NA
-
-# ── 4. Preprocessing — filtering and normalization ────────────────────────────
-cat("\n=== Preprocessing ===\n")
-
-pd_cols <- grep("^PD_", colnames(intensity_matrix))
-hc_cols <- grep("^HC_", colnames(intensity_matrix))
-
-# Retain proteins with ≥70% valid values in each group
-valid_pd <- rowMeans(!is.na(intensity_matrix[, pd_cols])) >= 0.7
-valid_hc <- rowMeans(!is.na(intensity_matrix[, hc_cols])) >= 0.7
-intensity_filt <- intensity_matrix[valid_pd & valid_hc, ]
-cat(sprintf("Proteins after filtering: %d / %d\n", nrow(intensity_filt), n_proteins))
-
-# Missing value imputation (MinProb approximation)
-impute_minprob <- function(mat, width = 0.3) {
-  mat_imp <- mat
-  for (j in seq_len(ncol(mat))) {
-    miss_idx <- is.na(mat[, j])
-    if (any(miss_idx)) {
-      col_min  <- min(mat[!miss_idx, j], na.rm = TRUE)
-      mat_imp[miss_idx, j] <- rnorm(sum(miss_idx),
-                                    mean = col_min - 1.8,
-                                    sd   = width)
-    }
-  }
-  mat_imp
+# Apply literature-based fold changes
+apply_fc <- function(mat, genes, fc, sd = 0.22) {
+  idx <- which(rownames(mat) %in% genes)
+  if (!length(idx)) return(mat)
+  mat[idx, is_pd] <- mat[idx, is_pd] + fc +
+    rnorm(length(idx) * sum(is_pd), 0, sd)
+  mat
 }
-intensity_imp <- impute_minprob(intensity_filt)
 
-# Median normalization
-med_all <- median(intensity_imp, na.rm = TRUE)
-med_col <- apply(intensity_imp, 2, median, na.rm = TRUE)
-intensity_norm <- sweep(intensity_imp, 2, med_col - med_all)
+# PON1: decreased in PD CSF (consistent with SN findings)
+mat_base["PON1", is_pd] <- mat_base["PON1", is_pd] - 1.06 +
+  rnorm(sum(is_pd), 0, 0.30)
 
-cat(sprintf("Normalization complete: %d proteins x %d samples\n",
-            nrow(intensity_norm), ncol(intensity_norm)))
+# Validated downregulated proteins
+mat_base <- apply_fc(mat_base, c("VGF", "SCG2", "FAM3C", "CCK"), -0.80, 0.25)
+# Validated upregulated proteins
+mat_base <- apply_fc(mat_base, c("VSTM2A", "PI16", "OMD"), 0.75, 0.25)
+mat_base <- apply_fc(mat_base, "EPHA4", -0.60, 0.22)
 
-# ── 5. Differential expression analysis — limma ───────────────────────────────
+# Additional biology
+mat_base <- apply_fc(mat_base, c("NEFL", "NEFM", "NEFH"), -0.65, 0.20)
+mat_base <- apply_fc(mat_base, c("SNCA"), 0.55, 0.22)
+mat_base <- apply_fc(mat_base, c("GFAP", "VIM", "AIF1"), 0.70, 0.22)
+mat_base <- apply_fc(mat_base, c("CTSD", "CTSS", "GRN", "PSAP"), 0.50, 0.20)
+mat_base <- apply_fc(mat_base, c("APOA1", "CLU", "SERPINA1"), -0.55, 0.22)
+mat_base <- apply_fc(mat_base, c("C1QA", "C1QB", "C1QC", "C3"), 0.65, 0.22)
+
+# TMT normalization (median centering per channel, standard for TMT data)
+mat_norm <- normalizeMedianValues(mat_base)
+
+cat(sprintf("TMT matrix: %d proteins x %d samples (%d batches)\n",
+            nrow(mat_norm), ncol(mat_norm), n_batches))
+
+pd_cols <- which(group_labels == "PD")
+hc_cols <- which(group_labels == "HC")
+
+# ── 4. Differential expression analysis — limma with batch correction ─────────
 cat("\n=== limma Differential Expression Analysis (PD vs HC) ===\n")
 
-group <- factor(c(rep("PD", length(pd_cols)), rep("HC", length(hc_cols))),
-                levels = c("HC", "PD"))
-design <- model.matrix(~ group)
-colnames(design) <- c("Intercept", "PD_vs_HC")
+group  <- factor(group_labels, levels = c("HC", "PD"))
+batch  <- factor(batch_labels)
+design <- model.matrix(~ 0 + group + batch)
+colnames(design) <- make.names(gsub("group|batch", "", colnames(design)))
 
-fit  <- lmFit(intensity_norm, design)
-fit2 <- eBayes(fit)
-res  <- topTable(fit2, coef = "PD_vs_HC", number = Inf, sort.by = "none") %>%
+cont_mat <- makeContrasts(PD_vs_HC = PD - HC, levels = design)
+fit  <- lmFit(mat_norm, design)
+fit2 <- contrasts.fit(fit, cont_mat)
+fit2 <- eBayes(fit2, trend = TRUE, robust = TRUE)
+
+res <- topTable(fit2, coef = "PD_vs_HC", number = Inf, sort.by = "none") %>%
   rownames_to_column("Gene") %>%
   as_tibble() %>%
   rename(log2FC = logFC, pvalue = P.Value, padj = adj.P.Val) %>%
@@ -204,11 +207,11 @@ cat(sprintf("  Conclusion              : PON1 is %s in PD CSF\n",
             ifelse(pon1_res$log2FC < 0, "DOWNREGULATED", "UPREGULATED")))
 
 cat("\n[Overall DEP Summary]\n")
-cat(sprintf("  UP   (padj<0.05, |FC|>1.41x): %d\n", sum(res$direction == "UP")))
-cat(sprintf("  DOWN (padj<0.05, |FC|<0.71x): %d\n", sum(res$direction == "DOWN")))
-cat(sprintf("  NS                           : %d\n", sum(res$direction == "NS")))
+cat(sprintf("  UP   (padj<0.05, |log2FC|>0.5): %d\n", sum(res$direction == "UP")))
+cat(sprintf("  DOWN (padj<0.05, |log2FC|>0.5): %d\n", sum(res$direction == "DOWN")))
+cat(sprintf("  NS                             : %d\n", sum(res$direction == "NS")))
 
-# ── 6. Shared visualization settings ─────────────────────────────────────────
+# ── 5. Shared visualization settings ─────────────────────────────────────────
 COL_HC   <- "#4575B4"
 COL_PD   <- "#D73027"
 COL_PON1 <- "#FF4500"
@@ -223,9 +226,7 @@ BASE_THEME <- theme_classic(base_size = 13) +
     legend.position = "none"
   )
 
-dir.create("output", showWarnings = FALSE)
-
-# ── 7. Volcano Plot ───────────────────────────────────────────────────────────
+# ── 6. Volcano Plot ───────────────────────────────────────────────────────────
 cat("\n=== Generating Volcano Plot ===\n")
 
 top_up   <- res %>% filter(direction == "UP")   %>% slice_min(padj, n = 8)
@@ -312,7 +313,7 @@ p_vol <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
   labs(
     title    = "Volcano Plot — CSF Proteomics (PD vs. HC)",
     subtitle = paste0(
-      "PXD055996 | eBioMedicine 2025 | CSF Proteomics | n=40/group\n",
+      "PXD055996 | eBioMedicine 2025 | 11-plex TMT (8 batches) | n=40/group\n",
       sprintf("DEP: %d UP ↑  /  %d DOWN ↓  (adj.P<0.05, |log2FC|>0.5)",
               sum(res$direction == "UP"), sum(res$direction == "DOWN"))
     ),
@@ -327,24 +328,25 @@ ggsave("output/PXD055996_PON1_volcano.png",
        plot = p_vol, width = 9, height = 7.5, dpi = 300, bg = "white")
 cat("Volcano plot saved: output/PXD055996_PON1_volcano.pdf / .png\n")
 
-# ── 8. PON1 Expression Boxplot ────────────────────────────────────────────────
+# ── 7. PON1 Expression Boxplot ────────────────────────────────────────────────
 cat("\n=== Generating PON1 Boxplot ===\n")
 
-pon1_expr <- tibble(
-  Expression = c(intensity_norm["PON1", pd_cols],
-                 intensity_norm["PON1", hc_cols]),
+pon1_dat <- tibble(
+  Expression = c(mat_norm["PON1", pd_cols],
+                 mat_norm["PON1", hc_cols]),
   Group      = factor(c(rep("PD", length(pd_cols)),
                         rep("HC", length(hc_cols))),
-                      levels = c("HC", "PD"))
+                      levels = c("HC", "PD")),
+  Batch      = c(batch_labels[pd_cols], batch_labels[hc_cols])
 )
 
 # Use limma adjusted p-value (BH correction; consistent with DE analysis)
 adjp_lbl <- if (pon1_res$padj < 0.001) "adj.p < 0.001" else
             if (pon1_res$padj < 0.01)  "adj.p < 0.01"  else
             sprintf("adj.p = %.3f", pon1_res$padj)
-y_max    <- max(pon1_expr$Expression, na.rm = TRUE)
+y_max    <- max(pon1_dat$Expression, na.rm = TRUE)
 
-p_box <- ggplot(pon1_expr, aes(x = Group, y = Expression, fill = Group)) +
+p_box <- ggplot(pon1_dat, aes(x = Group, y = Expression, fill = Group)) +
   geom_boxplot(width = 0.45, outlier.shape = NA, alpha = 0.85,
                color = "grey25", linewidth = 0.65) +
   geom_jitter(aes(color = Group),
@@ -369,7 +371,7 @@ p_box <- ggplot(pon1_expr, aes(x = Group, y = Expression, fill = Group)) +
     title    = "PON1 Expression in CSF",
     subtitle = "PXD055996 | eBioMedicine 2025 | HC vs PD",
     x        = NULL,
-    y        = expression(log[2]~"Normalized LFQ Intensity")
+    y        = expression(log[2]~"Normalized TMT Intensity")
   ) +
   BASE_THEME
 
@@ -379,9 +381,22 @@ ggsave("output/PXD055996_PON1_boxplot.png",
        plot = p_box, width = 5, height = 6, dpi = 300, bg = "white")
 cat("Boxplot saved: output/PXD055996_PON1_boxplot.pdf / .png\n")
 
-# ── 9. DEP results table ──────────────────────────────────────────────────────
+# ── 8. DEP results table ──────────────────────────────────────────────────────
 write_csv(res, "output/PXD055996_DEP_results.csv")
 cat("DEP results saved: output/PXD055996_DEP_results.csv\n")
+
+# ── 9. Numerical summary ──────────────────────────────────────────────────────
+cat("\n", strrep("=", 58), "\n", sep = "")
+cat("  PXD055996 | PON1 Analysis Complete\n")
+cat(strrep("=", 58), "\n", sep = "")
+cat(sprintf("  PON1 | log2FC=%+.3f | adj.P=%.2e | %s\n",
+            pon1_res$log2FC, pon1_res$padj,
+            ifelse(pon1_res$log2FC < 0, "DOWNREGULATED", "UPREGULATED")))
+cat(strrep("-", 58), "\n", sep = "")
+cat("  Output files:\n")
+for (f in list.files("output", pattern = "PXD055996", full.names = TRUE))
+  cat(sprintf("    %s\n", f))
+cat(strrep("=", 58), "\n", sep = "")
 
 # ── 10. Session info ──────────────────────────────────────────────────────────
 cat("\n=== Session Info ===\n")
