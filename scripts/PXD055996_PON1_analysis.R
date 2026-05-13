@@ -338,11 +338,10 @@ pon1_expr <- tibble(
                       levels = c("HC", "PD"))
 )
 
-# Wilcoxon test
-wt       <- wilcox.test(Expression ~ Group, data = pon1_expr, exact = FALSE)
-pval_lbl <- if (wt$p.value < 0.001) "p < 0.001" else
-            if (wt$p.value < 0.01)  "p < 0.01"  else
-            sprintf("p = %.3f", wt$p.value)
+# Use limma adjusted p-value (BH correction; consistent with DE analysis)
+adjp_lbl <- if (pon1_res$padj < 0.001) "adj.p < 0.001" else
+            if (pon1_res$padj < 0.01)  "adj.p < 0.01"  else
+            sprintf("adj.p = %.3f", pon1_res$padj)
 y_max    <- max(pon1_expr$Expression, na.rm = TRUE)
 
 p_box <- ggplot(pon1_expr, aes(x = Group, y = Expression, fill = Group)) +
@@ -361,7 +360,7 @@ p_box <- ggplot(pon1_expr, aes(x = Group, y = Expression, fill = Group)) +
            x = 2, xend = 2, y = y_max + 0.20, yend = y_max + 0.35,
            linewidth = 0.8, color = "black") +
   annotate("text",
-           x = 1.5, y = y_max + 0.55, label = pval_lbl,
+           x = 1.5, y = y_max + 0.55, label = adjp_lbl,
            size = 4.2, fontface = "bold") +
   scale_fill_manual(values  = c(HC = COL_HC, PD = COL_PD)) +
   scale_color_manual(values = c(HC = COL_HC, PD = COL_PD)) +
@@ -370,7 +369,7 @@ p_box <- ggplot(pon1_expr, aes(x = Group, y = Expression, fill = Group)) +
     title    = "PON1 Expression in CSF",
     subtitle = "PXD055996 | eBioMedicine 2025 | HC vs PD",
     x        = NULL,
-    y        = expression(log[2]~"LFQ Intensity (normalized)")
+    y        = expression(log[2]~"Normalized LFQ Intensity")
   ) +
   BASE_THEME
 

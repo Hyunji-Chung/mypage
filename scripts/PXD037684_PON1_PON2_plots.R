@@ -266,11 +266,11 @@ pon2_dat <- tibble(
   Batch      = batch_labels
 )
 
-# Use limma p-value (consistent with DE analysis results)
+# Use limma adjusted p-value (BH correction)
 pon2_row <- filter(results, Gene == "PON2")
-pval_lbl <- if (pon2_row$pval < 0.001) "p < 0.001" else
-            if (pon2_row$pval < 0.01)  "p < 0.01"  else
-            sprintf("p = %.3f", pon2_row$pval)
+adjp_lbl <- if (pon2_row$adj_pval < 0.001) "adj.p < 0.001" else
+            if (pon2_row$adj_pval < 0.01)  "adj.p < 0.01"  else
+            sprintf("adj.p = %.3f", pon2_row$adj_pval)
 y_max    <- max(pon2_dat$Expression, na.rm = TRUE)
 
 p1 <- ggplot(pon2_dat, aes(x = Group, y = Expression, fill = Group)) +
@@ -289,7 +289,7 @@ p1 <- ggplot(pon2_dat, aes(x = Group, y = Expression, fill = Group)) +
            x = 2, xend = 2, y = y_max + 0.20, yend = y_max + 0.35,
            linewidth = 0.8, color = "black") +
   annotate("text",
-           x = 1.5, y = y_max + 0.55, label = pval_lbl,
+           x = 1.5, y = y_max + 0.55, label = adjp_lbl,
            size = 4.2, fontface = "bold") +
   scale_fill_manual(values  = c(HC = COL_HC, PD = COL_PD)) +
   scale_color_manual(values = c(HC = COL_HC, PD = COL_PD)) +
@@ -297,12 +297,11 @@ p1 <- ggplot(pon2_dat, aes(x = Group, y = Expression, fill = Group)) +
                      name = "TMT Batch") +
   scale_x_discrete(labels = c(HC = "HC\n(n=15)", PD = "PD\n(n=15)")) +
   guides(shape = guide_legend(title = "TMT Batch")) +
-  theme(legend.position = "right") +
   labs(
     title    = "PON2 Expression in Substantia Nigra",
     subtitle = "PXD037684 | Mol Cell Proteomics 2023 | HC vs PD",
     x        = NULL,
-    y        = expression(log[2]~"TMT Intensity")
+    y        = expression(log[2]~"Normalized TMT Intensity")
   ) +
   BASE_THEME + theme(legend.position = "right")
 
@@ -320,20 +319,20 @@ pon_long <- tibble(
   Batch      = rep(batch_labels, 2)
 )
 
-# Use limma p-values (consistent with DE analysis results)
+# Use limma adjusted p-values (BH correction)
 pon_ymax <- pon_long %>%
   group_by(Gene) %>%
   summarise(y = max(Expression, na.rm = TRUE) + 0.35, .groups = "drop")
 
 pon_pvals <- results %>%
   filter(Gene %in% c("PON1", "PON2")) %>%
-  select(Gene, pval) %>%
+  select(Gene, adj_pval) %>%
   left_join(pon_ymax, by = "Gene") %>%
   mutate(
     label = case_when(
-      pval < 0.001 ~ "p < 0.001",
-      pval < 0.01  ~ "p < 0.01",
-      TRUE         ~ sprintf("p = %.3f", pval)
+      adj_pval < 0.001 ~ "adj.p < 0.001",
+      adj_pval < 0.01  ~ "adj.p < 0.01",
+      TRUE             ~ sprintf("adj.p = %.3f", adj_pval)
     ),
     Group = "HC"   # dummy for positioning
   )
@@ -360,7 +359,7 @@ p2 <- ggplot(pon_long, aes(x = Group, y = Expression, fill = Group)) +
     title    = "PON1 & PON2 Expression in Substantia Nigra",
     subtitle = "PXD037684 | Mol Cell Proteomics 2023 | HC vs PD",
     x        = NULL,
-    y        = expression(log[2]~"TMT Intensity"),
+    y        = expression(log[2]~"Normalized TMT Intensity"),
     fill     = "Group"
   ) +
   BASE_THEME +
@@ -534,8 +533,8 @@ cat(strrep("=", 58), "\n", sep = "")
 
 for (g in c("PON1", "PON2")) {
   r <- filter(results, Gene == g)
-  cat(sprintf("  %s | log2FC=%+.3f | adj.P=%.2e | limma.p=%.3f | %s\n",
-              g, r$log2FC, r$adj_pval, r$pval,
+  cat(sprintf("  %s | log2FC=%+.3f | adj.P=%.2e | %s\n",
+              g, r$log2FC, r$adj_pval,
               ifelse(r$log2FC < 0, "DOWNREGULATED", "UPREGULATED")))
 }
 
