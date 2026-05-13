@@ -13,7 +13,7 @@
 #   3. Volcano plot — PON1 & PON2 highlighted
 # =============================================================================
 
-# ── 1. 패키지 ─────────────────────────────────────────────────────────────────
+# ── 1. Package loading ────────────────────────────────────────────────────────
 suppressPackageStartupMessages({
   if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
@@ -33,13 +33,13 @@ dir.create("output", showWarnings = FALSE, recursive = TRUE)
 cat("=== PXD037684 | PON1 & PON2 Visualization ===\n")
 cat("Substantia Nigra TMT Proteomics | PD n=15 vs HC n=15\n\n")
 
-# ── 2. 데이터 로드 또는 다운로드 ──────────────────────────────────────────────
+# ── 2. Data loading / download ───────────────────────────────────────────────
 ACCESSION    <- "PXD037684"
 protein_file <- sprintf("data/%s_proteinGroups.txt", ACCESSION)
 
-# PRIDE API 다운로드 시도
+# Attempt PRIDE API download
 if (!file.exists(protein_file)) {
-  cat("PRIDE API 조회 시도...\n")
+  cat("Querying PRIDE API...\n")
   api_url <- sprintf(
     "https://www.ebi.ac.uk/pride/ws/archive/v3/projects/%s/files?pageSize=200&page=0",
     ACCESSION)
@@ -67,20 +67,20 @@ if (!file.exists(protein_file)) {
 
 USE_REAL_DATA <- file.exists(protein_file)
 
-# ── 3. 데이터 준비 ────────────────────────────────────────────────────────────
+# ── 3. Data preparation ───────────────────────────────────────────────────────
 if (USE_REAL_DATA) {
-  cat("[실제 데이터 모드]\n")
+  cat("[Real data mode]\n")
   df <- read_delim(protein_file, delim = "\t", show_col_types = FALSE,
                    guess_max = 5000, progress = FALSE)
 
-  # MaxQuant 필터
+  # MaxQuant contaminant filter
   for (col in c("Reverse", "Potential contaminant", "Only identified by site"))
     if (col %in% names(df)) df <- df %>% filter(is.na(.data[[col]]) | .data[[col]] != "+")
 
-  # 유전자 이름 컬럼
+  # Gene name column
   gene_col <- names(df)[names(df) %in% c("Gene names","Gene Names","Genes","gene_names")][1]
 
-  # TMT Reporter 컬럼
+  # TMT reporter intensity columns
   tmt_cols <- names(df)[grepl("^Reporter intensity corrected|^Reporter intensity ", names(df))]
   if (length(tmt_cols) == 0) tmt_cols <- names(df)[grepl("^LFQ intensity ", names(df))]
 
@@ -89,14 +89,14 @@ if (USE_REAL_DATA) {
   mat[mat == 0] <- NA
   mat <- log2(mat)
 
-  # 그룹 탐지
+  # Group detection from column names
   sn    <- colnames(mat)
   is_hc <- grepl("HC|Ctrl|Control|healthy|normal", sn, ignore.case = TRUE)
   is_pd <- grepl("PD|Parkinson",                   sn, ignore.case = TRUE)
   is_rf <- grepl("ref|pool|MP|master|bridge",       sn, ignore.case = TRUE)
 
   if (sum(is_hc | is_pd) == 0) {
-    # 순서 기반: 11-plex × 3 배치, 각 배치 1~5=HC, 6~10=PD, 11=ref
+    # Positional assignment: 11-plex x 3 batches, positions 1-5=HC, 6-10=PD, 11=ref
     pos    <- rep(1:11, 3)[seq_len(ncol(mat))]
     is_hc  <- pos <= 5
     is_pd  <- pos >= 6 & pos <= 10
@@ -110,15 +110,15 @@ if (USE_REAL_DATA) {
   mat_norm <- normalizeMedianValues(mat)
 
 } else {
-  # ── 오프라인 시뮬레이션 ────────────────────────────────────────────────────
-  cat("[오프라인 시뮬레이션 모드]\n")
-  cat("Mol Cell Proteomics 22:100452 (2023) 문헌 기반\n\n")
+  # ── Offline simulation mode ────────────────────────────────────────────────
+  cat("[Offline simulation mode]\n")
+  cat("Based on: Mol Cell Proteomics 22:100452 (2023)\n\n")
 
   set.seed(2023)
   n_hc <- 15; n_pd <- 15; N <- 30
   n_prot <- 10040
 
-  # ── 주요 단백질 이름 (분석에 쓰이는 named_genes) ──────────────────────────
+  # Key protein names used in the analysis
   named_genes <- c(
     "PON2", "PON1",
     # Mitoribosome (DOWN)
@@ -153,26 +153,25 @@ if (USE_REAL_DATA) {
     # Housekeeping
     "ACTB","GAPDH","TUBA1B","TUBB","HSP90AB1","HSPA8"
   )
-  # 실제 개수 확인
   n_named <- length(named_genes)
-  cat(sprintf("named_genes 개수: %d\n", n_named))
+  cat(sprintf("named_genes count: %d\n", n_named))
 
   gene_names <- c(named_genes,
                   paste0("PROT", sprintf("%05d", seq_len(n_prot - n_named))))
   stopifnot(length(gene_names) == n_prot)
 
-  # TMT 샘플: 3 배치 × (5 HC + 5 PD)
+  # TMT samples: 3 batches x (5 HC + 5 PD)
   batch_labels <- rep(paste0("B", 1:3), each = 10)
   group_labels <- rep(c(rep("HC", 5), rep("PD", 5)), 3)
   sample_ids   <- paste0(group_labels, "_", batch_labels, "_",
                          sprintf("%02d", rep(c(1:5, 1:5), 3)))
 
-  # 기본 intensity matrix
+  # Base intensity matrix
   mat_base <- matrix(rnorm(n_prot * N, mean = 24, sd = 1.8),
                      nrow  = n_prot,
                      dimnames = list(gene_names, sample_ids))
 
-  # 배치 효과
+  # Batch effects
   for (b in 1:3) {
     cols <- which(batch_labels == paste0("B", b))
     mat_base[, cols] <- mat_base[, cols] + c(0, 0.30, -0.25)[b]
@@ -189,12 +188,12 @@ if (USE_REAL_DATA) {
     mat
   }
 
-  # PON2: PD에서 감소
+  # PON2: decreased in PD
   mat_base["PON2", is_pd] <- mat_base["PON2", is_pd] - 0.88 + rnorm(sum(is_pd), 0, 0.20)
-  # PON1: PD에서 감소 (경미)
+  # PON1: mildly decreased in PD
   mat_base["PON1", is_pd] <- mat_base["PON1", is_pd] - 0.52 + rnorm(sum(is_pd), 0, 0.20)
 
-  # 기타 경로 효과
+  # Pathway-level fold changes
   mat_base <- apply_fc(mat_base, grep("^MRP", named_genes, value=TRUE), -1.35, 0.22)
   mat_base <- apply_fc(mat_base,
     c("NDUFS1","NDUFV1","NDUFB8","SDHA","SDHB","UQCRC1","UQCRC2","COX4I1","ATP5F1A","ATP5F1B"),
@@ -213,8 +212,8 @@ if (USE_REAL_DATA) {
   mat_norm <- normalizeMedianValues(mat_base)
 }
 
-# ── 4. limma 차등 발현 분석 (배치 보정) ───────────────────────────────────────
-cat("limma 분석 실행...\n")
+# ── 4. Differential expression — limma with batch correction ─────────────────
+cat("Running limma analysis...\n")
 
 groups <- factor(group_labels, levels = c("HC", "PD"))
 batch  <- factor(batch_labels)
@@ -245,11 +244,11 @@ results <- topTable(fit2, coef = "PD_vs_HC", number = Inf, sort.by = "none") %>%
 cat(sprintf("DEP: UP %d | DOWN %d (adj.P<0.05, |log2FC|>0.58)\n",
             sum(results$direction == "UP"), sum(results$direction == "DOWN")))
 
-# ── 5. 공통 시각화 설정 ───────────────────────────────────────────────────────
+# ── 5. Shared visualization settings ─────────────────────────────────────────
 COL_HC   <- "#4575B4"
 COL_PD   <- "#D73027"
-COL_PON1 <- "#E69F00"   # 황색
-COL_PON2 <- "#FF4500"   # 주황-빨
+COL_PON1 <- "#E69F00"   # gold
+COL_PON2 <- "#FF4500"   # orange-red
 BASE_THEME <- theme_classic(base_size = 13) +
   theme(
     plot.title    = element_text(face = "bold", size = 14),
@@ -258,7 +257,7 @@ BASE_THEME <- theme_classic(base_size = 13) +
     legend.position = "none"
   )
 
-# ── Plot 1. PON2 발현 박스플롯 (HC vs PD) ─────────────────────────────────────
+# ── Plot 1. PON2 Expression Boxplot (HC vs PD) ───────────────────────────────
 cat("\n[Plot 1] PON2 boxplot\n")
 
 pon2_dat <- tibble(
@@ -267,11 +266,11 @@ pon2_dat <- tibble(
   Batch      = batch_labels
 )
 
-# Wilcoxon test (비모수, 소표본 TMT에 적합)
-wt       <- wilcox.test(Expression ~ Group, data = pon2_dat, exact = FALSE)
-pval_lbl <- if (wt$p.value < 0.001) "p < 0.001" else
-            if (wt$p.value < 0.01)  "p < 0.01"  else
-            sprintf("p = %.3f", wt$p.value)
+# Use limma p-value (consistent with DE analysis results)
+pon2_row <- filter(results, Gene == "PON2")
+pval_lbl <- if (pon2_row$pval < 0.001) "p < 0.001" else
+            if (pon2_row$pval < 0.01)  "p < 0.01"  else
+            sprintf("p = %.3f", pon2_row$pval)
 y_max    <- max(pon2_dat$Expression, na.rm = TRUE)
 
 p1 <- ggplot(pon2_dat, aes(x = Group, y = Expression, fill = Group)) +
@@ -309,9 +308,9 @@ p1 <- ggplot(pon2_dat, aes(x = Group, y = Expression, fill = Group)) +
 
 ggsave("output/PXD037684_plot1_PON2_boxplot.pdf", p1, width = 5.5, height = 6.5)
 ggsave("output/PXD037684_plot1_PON2_boxplot.png", p1, width = 5.5, height = 6.5, dpi = 180)
-cat("  저장: output/PXD037684_plot1_PON2_boxplot.pdf/.png\n")
+cat("  Saved: output/PXD037684_plot1_PON2_boxplot.pdf/.png\n")
 
-# ── Plot 2. PON1 + PON2 나란히 박스플롯 (HC vs PD) ───────────────────────────
+# ── Plot 2. PON1 + PON2 Side-by-Side Boxplot (HC vs PD) ─────────────────────
 cat("[Plot 2] PON1 + PON2 boxplot\n")
 
 pon_long <- tibble(
@@ -321,19 +320,19 @@ pon_long <- tibble(
   Batch      = rep(batch_labels, 2)
 )
 
-# 각 단백질별 Wilcoxon p-value
-pon_pvals <- pon_long %>%
+# Use limma p-values (consistent with DE analysis results)
+pon_ymax <- pon_long %>%
   group_by(Gene) %>%
-  summarise(
-    pval = wilcox.test(Expression ~ Group, exact = FALSE)$p.value,
-    y    = max(Expression, na.rm = TRUE) + 0.35,
-    .groups = "drop"
-  ) %>%
+  summarise(y = max(Expression, na.rm = TRUE) + 0.35, .groups = "drop")
+
+pon_pvals <- results %>%
+  filter(Gene %in% c("PON1", "PON2")) %>%
+  select(Gene, pval) %>%
+  left_join(pon_ymax, by = "Gene") %>%
   mutate(
     label = case_when(
       pval < 0.001 ~ "p < 0.001",
       pval < 0.01  ~ "p < 0.01",
-      pval < 0.05  ~ sprintf("p = %.3f", pval),
       TRUE         ~ sprintf("p = %.3f", pval)
     ),
     Group = "HC"   # dummy for positioning
@@ -373,12 +372,12 @@ p2 <- ggplot(pon_long, aes(x = Group, y = Expression, fill = Group)) +
 
 ggsave("output/PXD037684_plot2_PON1_PON2_boxplot.pdf", p2, width = 8, height = 6.5)
 ggsave("output/PXD037684_plot2_PON1_PON2_boxplot.png", p2, width = 8, height = 6.5, dpi = 180)
-cat("  저장: output/PXD037684_plot2_PON1_PON2_boxplot.pdf/.png\n")
+cat("  Saved: output/PXD037684_plot2_PON1_PON2_boxplot.pdf/.png\n")
 
-# ── Plot 3. Volcano plot — PON1 & PON2 강조 ──────────────────────────────────
+# ── Plot 3. Volcano Plot — PON1 & PON2 Highlighted ───────────────────────────
 cat("[Plot 3] Volcano plot with PON1 & PON2 highlighted\n")
 
-# 주요 라벨 단백질 (생물학적으로 중요한 DEP)
+# Top DEP labels (biologically relevant proteins)
 top_label <- results %>%
   filter(sig) %>%
   slice_max(abs(log2FC), n = 12) %>%
@@ -414,7 +413,7 @@ plot_dat <- results %>%
     label_me = Gene %in% label_set
   )
 
-# NS → DEP DOWN → DEP UP → PON1 → PON2 순으로 레이어
+# Layers: NS → DEP DOWN → DEP UP → PON1 → PON2
 p3 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
 
   # NS background
@@ -429,21 +428,21 @@ p3 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
   geom_point(data = filter(plot_dat, direction == "UP", !is_PON),
              color = "#3366CC", size = 1.8, alpha = 0.75) +
 
-  # PON1 — 위에 그려서 항상 보이게
+  # PON1 — rendered above all other points
   geom_point(data = filter(plot_dat, is_PON1),
              color = COL_PON1, size = 5.5, shape = 18) +
 
-  # PON2 — 최상위 레이어
+  # PON2 — top layer
   geom_point(data = filter(plot_dat, is_PON2),
              color = COL_PON2, size = 5.5, shape = 18) +
 
-  # 기준선
+  # Reference lines
   geom_hline(yintercept = -log10(0.05), linetype = "dashed",
              color = "grey45", linewidth = 0.55) +
   geom_vline(xintercept = c(-0.58, 0.58), linetype = "dashed",
              color = "grey45", linewidth = 0.55) +
 
-  # 일반 라벨
+  # General DEP labels
   geom_label_repel(
     data          = filter(plot_dat, label_me & !is_PON),
     aes(label     = Gene),
@@ -457,7 +456,7 @@ p3 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
     max.overlaps  = 20
   ) +
 
-  # PON1 라벨 (황색 배경)
+  # PON1 label (yellow background)
   geom_label_repel(
     data          = filter(plot_dat, is_PON1),
     aes(label     = Gene),
@@ -473,7 +472,7 @@ p3 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
     max.overlaps  = Inf
   ) +
 
-  # PON2 라벨 (주황 배경)
+  # PON2 label (orange background)
   geom_label_repel(
     data          = filter(plot_dat, is_PON2),
     aes(label     = Gene),
@@ -492,7 +491,7 @@ p3 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
   scale_x_continuous(limits = c(-4.2, 4.2), breaks = seq(-4, 4, 1)) +
   scale_y_continuous(expand = expansion(mult = c(0.02, 0.08))) +
 
-  # 방향 주석
+  # Direction annotations
   annotate("text", x = -3.9, y = Inf, label = "DOWN in PD",
            hjust = 0, vjust = 1.8, color = "#1F8B4C",
            size = 3.8, fontface = "bold") +
@@ -500,7 +499,7 @@ p3 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
            hjust = 1, vjust = 1.8, color = "#3366CC",
            size = 3.8, fontface = "bold") +
 
-  # 범례용 더미 (PON1·PON2 색상 표시)
+  # Color legend annotations (PON1 / PON2)
   annotate("point", x = -3.9, y = -Inf, color = COL_PON1,
            size = 3.5, shape = 18, vjust = -1) +
   annotate("text",  x = -3.5, y = -Inf,
@@ -526,27 +525,22 @@ p3 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
 
 ggsave("output/PXD037684_plot3_volcano_PON1_PON2.pdf", p3, width = 9, height = 7.5)
 ggsave("output/PXD037684_plot3_volcano_PON1_PON2.png", p3, width = 9, height = 7.5, dpi = 180)
-cat("  저장: output/PXD037684_plot3_volcano_PON1_PON2.pdf/.png\n")
+cat("  Saved: output/PXD037684_plot3_volcano_PON1_PON2.pdf/.png\n")
 
-# ── 6. 수치 요약 ──────────────────────────────────────────────────────────────
+# ── 6. Numerical summary ──────────────────────────────────────────────────────
 cat("\n", strrep("=", 58), "\n", sep = "")
-cat("  PXD037684 | PON1 & PON2 시각화 완료\n")
+cat("  PXD037684 | PON1 & PON2 Visualization Complete\n")
 cat(strrep("=", 58), "\n", sep = "")
 
 for (g in c("PON1", "PON2")) {
   r <- filter(results, Gene == g)
-  wt_p <- wilcox.test(
-    mat_norm[g, group_labels == "HC"],
-    mat_norm[g, group_labels == "PD"],
-    exact = FALSE
-  )$p.value
-  cat(sprintf("  %s | log2FC=%+.3f | adj.P=%.2e | Wilcox.p=%.3f | %s\n",
-              g, r$log2FC, r$adj_pval, wt_p,
-              ifelse(r$log2FC < 0, "DOWNREGULATED ↓", "UPREGULATED ↑")))
+  cat(sprintf("  %s | log2FC=%+.3f | adj.P=%.2e | limma.p=%.3f | %s\n",
+              g, r$log2FC, r$adj_pval, r$pval,
+              ifelse(r$log2FC < 0, "DOWNREGULATED", "UPREGULATED")))
 }
 
 cat(strrep("-", 58), "\n", sep = "")
-cat("  출력 파일:\n")
+cat("  Output files:\n")
 for (f in list.files("output", pattern = "PXD037684_plot", full.names = TRUE))
   cat(sprintf("    %s\n", f))
 cat(strrep("=", 58), "\n", sep = "")
