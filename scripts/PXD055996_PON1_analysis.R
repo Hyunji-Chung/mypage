@@ -10,7 +10,7 @@
 # Method  : LC-MS/MS (DDA) + Parallel Reaction Monitoring (PRM)
 # =============================================================================
 
-# ── 1. 패키지 로드 ─────────────────────────────────────────────────────────────
+# ── 1. Package loading ────────────────────────────────────────────────────────
 suppressPackageStartupMessages({
   if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
@@ -38,8 +38,8 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
-# ── 2. PRIDE API를 통한 데이터셋 메타데이터 조회 ─────────────────────────────
-cat("=== PXD055996 데이터셋 메타데이터 조회 ===\n")
+# ── 2. PRIDE API metadata query ───────────────────────────────────────────────
+cat("=== PXD055996 Dataset Metadata ===\n")
 
 pride_api <- function(accession) {
   url <- paste0("https://www.ebi.ac.uk/pride/ws/archive/v2/projects/", accession)
@@ -47,42 +47,42 @@ pride_api <- function(accession) {
   if (!is.null(res) && status_code(res) == 200) {
     return(content(res, as = "parsed", simplifyVector = TRUE))
   }
-  message("API 접근 불가 — 오프라인 분석 모드로 진행합니다.")
+  message("API unavailable — switching to offline analysis mode.")
   return(NULL)
 }
 
 meta <- pride_api("PXD055996")
 if (!is.null(meta)) {
-  cat("제목:", meta$title, "\n")
-  cat("설명:", substr(meta$projectDescription, 1, 200), "...\n")
+  cat("Title:", meta$title, "\n")
+  cat("Description:", substr(meta$projectDescription, 1, 200), "...\n")
 }
 
-# ── 3. 데이터 준비 ─────────────────────────────────────────────────────────────
-# 실제 분석 시: PRIDE FTP에서 MaxQuant proteinGroups.txt 또는
-# Proteome Discoverer 결과 파일을 다운로드하여 사용
+# ── 3. Data preparation ───────────────────────────────────────────────────────
+# For real analysis: download MaxQuant proteinGroups.txt or
+# Proteome Discoverer output from PRIDE FTP:
 #
 # ftp_base <- "ftp://ftp.pride.ebi.ac.uk/pride/data/archive/"
 # download.file(paste0(ftp_base, "PXD055996/proteinGroups.txt"), "proteinGroups.txt")
 # raw <- read_tsv("proteinGroups.txt")
 #
-# 아래는 논문 보고 수치 기반 재현 데이터셋 (3,683 proteins identified)
+# Below: simulated dataset based on literature values (3,683 proteins identified)
 
 set.seed(2025)
 n_proteins <- 3683
-n_PD  <- 40   # 발견 코호트
+n_PD  <- 40   # discovery cohort
 n_HC  <- 40
 
 protein_ids <- paste0("P", sprintf("%05d", seq_len(n_proteins)))
 gene_names  <- c(
-  # 논문에서 확인된 바이오마커 후보 단백질
+  # Biomarker candidates confirmed in the paper
   "PON1", "OMD", "CD44", "VGF", "PRL", "MAN2B1",
   "APOA1", "APOE", "CLU", "ITIH4", "SERPINA1", "CP",
   "HSPA8", "YWHAZ", "ENO2", "ALDOA", "GAPDH", "PKM",
-  # 나머지를 채울 임의 유전자명
+  # Remaining proteins
   paste0("GENE", sprintf("%04d", seq_len(n_proteins - 18)))
 )
 
-# 정규 분포 기반 LFQ intensity matrix 생성 (log2 스케일)
+# LFQ intensity matrix in log2 scale
 intensity_matrix <- matrix(
   rnorm(n_proteins * (n_PD + n_HC), mean = 25, sd = 2),
   nrow = n_proteins,
@@ -91,13 +91,13 @@ intensity_matrix <- matrix(
                     paste0("HC_", seq_len(n_HC))))
 )
 
-# 논문 기반 발현 패턴 적용: 알려진 바이오마커 단백질에 실제 효과 크기 부여
-# PON1: PD에서 유의하게 감소 (fold change ~0.48, p < 0.001)
+# Apply literature-based effect sizes to known biomarker proteins
+# PON1: significantly decreased in PD (fold change ~0.48, p < 0.001)
 effect_down <- list(
-  PON1   = -1.06,   # log2(0.48) ≈ -1.06
-  OMD    = -0.90,
-  APOA1  = -0.70,
-  CLU    = -0.55,
+  PON1     = -1.06,   # log2(0.48) ≈ -1.06
+  OMD      = -0.90,
+  APOA1    = -0.70,
+  CLU      = -0.55,
   SERPINA1 = -0.60
 )
 effect_up <- list(
@@ -128,24 +128,24 @@ for (gene in names(effect_up)) {
   }
 }
 
-# 결측 처리: 일부 단백질에 무작위 결측 삽입 (실제 LFQ와 유사)
+# Missing value injection (~5% random, similar to real LFQ data)
 missing_mask <- matrix(runif(n_proteins * (n_PD + n_HC)) < 0.05,
                        nrow = n_proteins)
 intensity_matrix[missing_mask] <- NA
 
-# ── 4. 전처리 — 필터링 및 정규화 ─────────────────────────────────────────────
-cat("\n=== 전처리 ===\n")
+# ── 4. Preprocessing — filtering and normalization ────────────────────────────
+cat("\n=== Preprocessing ===\n")
 
-# 각 그룹에서 70% 이상 유효값이 있는 단백질만 유지
 pd_cols <- grep("^PD_", colnames(intensity_matrix))
 hc_cols <- grep("^HC_", colnames(intensity_matrix))
 
+# Retain proteins with ≥70% valid values in each group
 valid_pd <- rowMeans(!is.na(intensity_matrix[, pd_cols])) >= 0.7
 valid_hc <- rowMeans(!is.na(intensity_matrix[, hc_cols])) >= 0.7
 intensity_filt <- intensity_matrix[valid_pd & valid_hc, ]
-cat(sprintf("필터링 후 단백질 수: %d / %d\n", nrow(intensity_filt), n_proteins))
+cat(sprintf("Proteins after filtering: %d / %d\n", nrow(intensity_filt), n_proteins))
 
-# 결측값 최솟값 대체 (MinProb imputation 근사)
+# Missing value imputation (MinProb approximation)
 impute_minprob <- function(mat, width = 0.3) {
   mat_imp <- mat
   for (j in seq_len(ncol(mat))) {
@@ -153,24 +153,24 @@ impute_minprob <- function(mat, width = 0.3) {
     if (any(miss_idx)) {
       col_min  <- min(mat[!miss_idx, j], na.rm = TRUE)
       mat_imp[miss_idx, j] <- rnorm(sum(miss_idx),
-                                    mean  = col_min - 1.8,
-                                    sd    = width)
+                                    mean = col_min - 1.8,
+                                    sd   = width)
     }
   }
   mat_imp
 }
 intensity_imp <- impute_minprob(intensity_filt)
 
-# Median 정규화
+# Median normalization
 med_all <- median(intensity_imp, na.rm = TRUE)
 med_col <- apply(intensity_imp, 2, median, na.rm = TRUE)
 intensity_norm <- sweep(intensity_imp, 2, med_col - med_all)
 
-cat(sprintf("정규화 완료: %d 단백질 × %d 샘플\n",
+cat(sprintf("Normalization complete: %d proteins x %d samples\n",
             nrow(intensity_norm), ncol(intensity_norm)))
 
-# ── 5. 차등발현 분석 — limma ──────────────────────────────────────────────────
-cat("\n=== limma 차등발현 분석 (PD vs HC) ===\n")
+# ── 5. Differential expression analysis — limma ───────────────────────────────
+cat("\n=== limma Differential Expression Analysis (PD vs HC) ===\n")
 
 group <- factor(c(rep("PD", length(pd_cols)), rep("HC", length(hc_cols))),
                 levels = c("HC", "PD"))
@@ -192,29 +192,29 @@ res  <- topTable(fit2, coef = "PD_vs_HC", number = Inf, sort.by = "none") %>%
     )
   )
 
-# PON1 결과 출력
+# PON1 result summary
 pon1_res <- filter(res, Gene == "PON1")
-cat("\n[PON1 발현 분석 결과]\n")
+cat("\n[PON1 Expression Analysis Results]\n")
 cat(sprintf("  log2 Fold Change (PD/HC): %.4f\n",  pon1_res$log2FC))
-cat(sprintf("  Fold Change (2^log2FC)  : %.4f×\n", 2^pon1_res$log2FC))
+cat(sprintf("  Fold Change (2^log2FC)  : %.4f x\n", 2^pon1_res$log2FC))
 cat(sprintf("  p-value                 : %.2e\n",  pon1_res$pvalue))
 cat(sprintf("  adj. p-value (BH)       : %.4f\n",  pon1_res$padj))
-cat(sprintf("  발현 방향               : %s\n",    pon1_res$direction))
-cat(sprintf("  결론                    : PON1은 PD 환자 CSF에서 %s\n",
-            ifelse(pon1_res$log2FC < 0, "DOWNREGULATED ↓", "UPREGULATED ↑")))
+cat(sprintf("  Direction               : %s\n",    pon1_res$direction))
+cat(sprintf("  Conclusion              : PON1 is %s in PD CSF\n",
+            ifelse(pon1_res$log2FC < 0, "DOWNREGULATED", "UPREGULATED")))
 
-# 요약 통계
-cat("\n[전체 DEP 요약]\n")
-cat(sprintf("  UP   (padj<0.05, |FC|>1.41×): %d\n", sum(res$direction == "UP")))
-cat(sprintf("  DOWN (padj<0.05, |FC|<0.71×): %d\n", sum(res$direction == "DOWN")))
+cat("\n[Overall DEP Summary]\n")
+cat(sprintf("  UP   (padj<0.05, |FC|>1.41x): %d\n", sum(res$direction == "UP")))
+cat(sprintf("  DOWN (padj<0.05, |FC|<0.71x): %d\n", sum(res$direction == "DOWN")))
 cat(sprintf("  NS                           : %d\n", sum(res$direction == "NS")))
 
-# ── 6. Volcano Plot ───────────────────────────────────────────────────────────
-cat("\n=== Volcano Plot 생성 ===\n")
+# ── 6. Shared visualization settings ─────────────────────────────────────────
+COL_HC   <- "#4575B4"
+COL_PD   <- "#D73027"
+COL_PON1 <- "#FF4500"
+COL_DOWN <- "#1F8B4C"
+COL_UP   <- "#3366CC"
 
-COL_PON1   <- "#FF4500"
-COL_DOWN   <- "#1F8B4C"
-COL_UP     <- "#3366CC"
 BASE_THEME <- theme_classic(base_size = 13) +
   theme(
     plot.title    = element_text(face = "bold", size = 14),
@@ -223,7 +223,11 @@ BASE_THEME <- theme_classic(base_size = 13) +
     legend.position = "none"
   )
 
-# 라벨 표시 단백질: PON1 + top DEPs
+dir.create("output", showWarnings = FALSE)
+
+# ── 7. Volcano Plot ───────────────────────────────────────────────────────────
+cat("\n=== Generating Volcano Plot ===\n")
+
 top_up   <- res %>% filter(direction == "UP")   %>% slice_min(padj, n = 8)
 top_down <- res %>% filter(direction == "DOWN")  %>% slice_min(padj, n = 8)
 label_genes <- unique(c("PON1", top_up$Gene, top_down$Gene))
@@ -235,7 +239,7 @@ plot_dat <- res %>%
     label_me = Gene %in% label_genes
   )
 
-p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
+p_vol <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
 
   # NS background
   geom_point(data = filter(plot_dat, direction == "NS"),
@@ -249,17 +253,17 @@ p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
   geom_point(data = filter(plot_dat, direction == "UP" & !is_PON1),
              color = COL_UP, size = 1.8, alpha = 0.75) +
 
-  # PON1 — 최상위 레이어, 다이아몬드
+  # PON1 — top layer, diamond shape
   geom_point(data = filter(plot_dat, is_PON1),
              color = COL_PON1, size = 5.5, shape = 18) +
 
-  # 기준선
+  # Reference lines
   geom_hline(yintercept = -log10(0.05), linetype = "dashed",
              color = "grey45", linewidth = 0.55) +
   geom_vline(xintercept = c(-0.5, 0.5), linetype = "dashed",
              color = "grey45", linewidth = 0.55) +
 
-  # 일반 DEP 라벨
+  # General DEP labels
   geom_label_repel(
     data          = filter(plot_dat, label_me & !is_PON1),
     aes(label     = Gene),
@@ -273,7 +277,7 @@ p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
     max.overlaps  = 20
   ) +
 
-  # PON1 전용 라벨 (주황 배경)
+  # PON1 dedicated label (orange background)
   geom_label_repel(
     data          = filter(plot_dat, is_PON1),
     aes(label     = Gene),
@@ -292,7 +296,6 @@ p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
   scale_x_continuous(limits = c(-4.2, 4.2), breaks = seq(-4, 4, 1)) +
   scale_y_continuous(expand = expansion(mult = c(0.02, 0.08))) +
 
-  # 방향 주석
   annotate("text", x = -3.9, y = Inf, label = "DOWN in PD",
            hjust = 0, vjust = 1.8, color = COL_DOWN,
            size = 3.8, fontface = "bold") +
@@ -300,7 +303,6 @@ p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
            hjust = 1, vjust = 1.8, color = COL_UP,
            size = 3.8, fontface = "bold") +
 
-  # PON1 색상 범례 주석
   annotate("point", x = -3.9, y = -Inf,
            color = COL_PON1, size = 3.5, shape = 18, vjust = -1) +
   annotate("text",  x = -3.5, y = -Inf,
@@ -308,7 +310,7 @@ p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
            size = 3.5, fontface = "bold", hjust = 0, vjust = -0.3) +
 
   labs(
-    title    = "Volcano Plot — Substantia Nigra Proteomics (PD vs. HC)",
+    title    = "Volcano Plot — CSF Proteomics (PD vs. HC)",
     subtitle = paste0(
       "PXD055996 | eBioMedicine 2025 | CSF Proteomics | n=40/group\n",
       sprintf("DEP: %d UP ↑  /  %d DOWN ↓  (adj.P<0.05, |log2FC|>0.5)",
@@ -319,59 +321,69 @@ p1 <- ggplot(plot_dat, aes(x = log2FC, y = log10p)) +
   ) +
   BASE_THEME
 
-# 저장
-dir.create("output", showWarnings = FALSE)
 ggsave("output/PXD055996_PON1_volcano.pdf",
-       plot = p1, width = 9, height = 7.5, dpi = 300)
+       plot = p_vol, width = 9, height = 7.5, dpi = 300)
 ggsave("output/PXD055996_PON1_volcano.png",
-       plot = p1, width = 9, height = 7.5, dpi = 300, bg = "white")
-cat("Volcano plot 저장: output/PXD055996_PON1_volcano.pdf / .png\n")
+       plot = p_vol, width = 9, height = 7.5, dpi = 300, bg = "white")
+cat("Volcano plot saved: output/PXD055996_PON1_volcano.pdf / .png\n")
 
-# ── 7. PON1 발현 BoxPlot ──────────────────────────────────────────────────────
-pon1_expr <- data.frame(
-  intensity = c(intensity_norm["PON1", pd_cols],
-                intensity_norm["PON1", hc_cols]),
-  group     = c(rep("PD", length(pd_cols)), rep("HC", length(hc_cols)))
-) %>%
-  mutate(group = factor(group, levels = c("HC", "PD")))
+# ── 8. PON1 Expression Boxplot ────────────────────────────────────────────────
+cat("\n=== Generating PON1 Boxplot ===\n")
 
-p1b <- ggplot(pon1_expr, aes(x = group, y = intensity, fill = group)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.7, width = 0.5,
-               linewidth = 0.8) +
-  geom_jitter(width = 0.12, size = 2.2, alpha = 0.6, shape = 21,
-              aes(fill = group), color = "white") +
-  scale_fill_manual(values = c("HC" = "#42A5F5", "PD" = "#EF5350"),
-                    guide  = "none") +
-  stat_summary(fun = mean, geom = "crossbar", width = 0.4,
-               color = "black", linewidth = 0.6) +
+pon1_expr <- tibble(
+  Expression = c(intensity_norm["PON1", pd_cols],
+                 intensity_norm["PON1", hc_cols]),
+  Group      = factor(c(rep("PD", length(pd_cols)),
+                        rep("HC", length(hc_cols))),
+                      levels = c("HC", "PD"))
+)
+
+# Wilcoxon test
+wt       <- wilcox.test(Expression ~ Group, data = pon1_expr, exact = FALSE)
+pval_lbl <- if (wt$p.value < 0.001) "p < 0.001" else
+            if (wt$p.value < 0.01)  "p < 0.01"  else
+            sprintf("p = %.3f", wt$p.value)
+y_max    <- max(pon1_expr$Expression, na.rm = TRUE)
+
+p_box <- ggplot(pon1_expr, aes(x = Group, y = Expression, fill = Group)) +
+  geom_boxplot(width = 0.45, outlier.shape = NA, alpha = 0.85,
+               color = "grey25", linewidth = 0.65) +
+  geom_jitter(aes(color = Group),
+              width = 0.12, size = 2.5, alpha = 0.80) +
+  # Significance bracket
+  annotate("segment",
+           x = 1, xend = 2, y = y_max + 0.35, yend = y_max + 0.35,
+           linewidth = 0.8, color = "black") +
+  annotate("segment",
+           x = 1, xend = 1, y = y_max + 0.20, yend = y_max + 0.35,
+           linewidth = 0.8, color = "black") +
+  annotate("segment",
+           x = 2, xend = 2, y = y_max + 0.20, yend = y_max + 0.35,
+           linewidth = 0.8, color = "black") +
+  annotate("text",
+           x = 1.5, y = y_max + 0.55, label = pval_lbl,
+           size = 4.2, fontface = "bold") +
+  scale_fill_manual(values  = c(HC = COL_HC, PD = COL_PD)) +
+  scale_color_manual(values = c(HC = COL_HC, PD = COL_PD)) +
+  scale_x_discrete(labels = c(HC = "HC\n(n=40)", PD = "PD\n(n=40)")) +
   labs(
-    title    = "PON1 발현 수준 — PXD055996",
-    subtitle = "CSF Proteomics · PD (n=40) vs HC (n=40)",
+    title    = "PON1 Expression in CSF",
+    subtitle = "PXD055996 | eBioMedicine 2025 | HC vs PD",
     x        = NULL,
-    y        = "log2 LFQ Intensity (정규화)"
+    y        = expression(log[2]~"LFQ Intensity (normalized)")
   ) +
-  annotate("text", x = 1.5, y = max(pon1_expr$intensity) + 0.3,
-           label = sprintf("log2FC = %.2f\np = %.2e",
-                           pon1_res$log2FC, pon1_res$pvalue),
-           size = 3.8, hjust = 0.5) +
-  theme_bw(base_size = 13) +
-  theme(
-    plot.title       = element_text(face = "bold"),
-    panel.grid.minor = element_blank(),
-    plot.background  = element_rect(fill = "white", color = NA)
-  )
+  BASE_THEME
 
 ggsave("output/PXD055996_PON1_boxplot.pdf",
-       plot = p1b, width = 5, height = 6, dpi = 300)
+       plot = p_box, width = 5, height = 6, dpi = 300)
 ggsave("output/PXD055996_PON1_boxplot.png",
-       plot = p1b, width = 5, height = 6, dpi = 300, bg = "white")
-cat("BoxPlot 저장: output/PXD055996_PON1_boxplot.pdf / .png\n")
+       plot = p_box, width = 5, height = 6, dpi = 300, bg = "white")
+cat("Boxplot saved: output/PXD055996_PON1_boxplot.pdf / .png\n")
 
-# ── 8. 결과 테이블 저장 ──────────────────────────────────────────────────────
-write_csv(res,
-          "output/PXD055996_DEP_results.csv")
-cat("DEP 결과 테이블 저장: output/PXD055996_DEP_results.csv\n")
+# ── 9. DEP results table ──────────────────────────────────────────────────────
+write_csv(res, "output/PXD055996_DEP_results.csv")
+cat("DEP results saved: output/PXD055996_DEP_results.csv\n")
 
-# ── 9. 세션 정보 ──────────────────────────────────────────────────────────────
-cat("\n=== 세션 정보 ===\n")
+# ── 10. Session info ──────────────────────────────────────────────────────────
+cat("\n=== Session Info ===\n")
 sessionInfo()
