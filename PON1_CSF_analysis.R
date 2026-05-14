@@ -38,45 +38,70 @@ cat("Input:", INPUT_FILE, "\n\n")
 # Sheet layout:
 #   Row 1 : group labels — cols 1-3 empty, cols 4-83 = PD / Control
 #   Row 2 : headers     — Accession, Gene symbol, p-value, CSF01..CSF80
-#   Row 3+ : protein data
+#   Row 3+ : protein data (log2-normalized values)
 #
-# Read the entire sheet without header so we can grab the group row safely.
-raw_full <- read_excel(INPUT_FILE, sheet = "Normalized", col_names = FALSE)
+# Strategy: read the whole sheet without any headers to keep full position
+# control, then extract group labels and expression values by numeric index.
 
-n_total_cols <- ncol(raw_full)                    # 83
-sample_col_idx <- 4:n_total_cols                  # positions of CSF columns
+raw_all <- read_excel(INPUT_FILE, sheet = "Normalized",
+                      col_names = FALSE, col_types = "text")
 
-# unlist() preserves NAs — select only the sample columns by position
-group_labels <- unlist(raw_full[1, sample_col_idx], use.names = FALSE)
-group_labels <- as.character(group_labels)        # length must be 80
+n_rows <- nrow(raw_all)
+n_cols <- ncol(raw_all)
+cat(sprintf("Sheet dimensions: %d rows x %d columns\n", n_rows, n_cols))
 
-# Now read with skip=1 so row 2 becomes the column-name header
-raw <- read_excel(INPUT_FILE, sheet = "Normalized", skip = 1)
-cat(sprintf("Loaded: %d proteins x %d columns\n", nrow(raw), ncol(raw)))
+# Row 1 = group labels; row 2 = header; rows 3+ = protein data
+# Expression columns start at column 4 (0-based: index 4 in R = col D)
+EXPR_START <- 4L
+expr_col_idx <- EXPR_START:n_cols   # 4:83 → 80 columns
 
-# Sample columns by position (cols 4 onward in raw = CSF01-CSF80)
-sample_cols <- names(raw)[sample_col_idx]
-
-cat(sprintf("Sample columns: %d | Group labels: %d\n",
-            length(sample_cols), length(group_labels)))
-stopifnot(length(sample_cols) == length(group_labels))  # must be 80
-
-# Rename Control -> Healthy for clarity
+# Group labels from row 1, expression columns only
+group_labels <- as.character(unlist(raw_all[1, expr_col_idx],
+                                    use.names = FALSE))
 group_labels[group_labels == "Control"] <- "Healthy"
 groups <- factor(group_labels, levels = c("Healthy", "PD"))
 
-cat(sprintf("Samples: Healthy n=%d | PD n=%d\n",
+cat(sprintf("Group labels extracted: %d  (Healthy=%d, PD=%d)\n",
+            length(group_labels),
             sum(groups == "Healthy"), sum(groups == "PD")))
 
+# Protein metadata from rows 3+, columns 1-3
+accessions   <- as.character(unlist(raw_all[3:n_rows, 1], use.names = FALSE))
+gene_symbols <- as.character(unlist(raw_all[3:n_rows, 2], use.names = FALSE))
+sample_names <- as.character(unlist(raw_all[2, expr_col_idx], use.names = FALSE))
+
+cat(sprintf("Proteins: %d | Sample columns: %d\n",
+            length(accessions), length(sample_names)))
+
+# Gene symbol lookup (Accession → Gene)
+gene_map <- tibble(Accession = accessions, Gene = gene_symbols)
+
 # ── 3. Build expression matrix ────────────────────────────────────────────────
-gene_symbols <- raw[["Gene symbol"]]
-mat <- as.matrix(raw[, sample_cols])
-rownames(mat) <- gene_symbols
+# Extract numeric expression values; rows = proteins, cols = samples
+mat_raw <- raw_all[3:n_rows, expr_col_idx]
+mat <- matrix(
+  as.numeric(unlist(mat_raw, use.names = FALSE)),
+  nrow = length(accessions),
+  ncol = length(sample_names),
+  byrow = FALSE
+)
+rownames(mat) <- accessions      # unique Accession IDs as row identifiers
+colnames(mat) <- sample_names
+
+# Verify PON1 before NA filtering
+pon1_acc <- gene_map$Accession[gene_map$Gene == "PON1"]
+cat(sprintf("PON1 Accession: %s | NAs in row: %d\n",
+            paste(pon1_acc, collapse = ","),
+            sum(is.na(mat[pon1_acc, ]))))
 
 # Remove rows with any NA
 keep <- rowSums(is.na(mat)) == 0
 mat  <- mat[keep, ]
+gene_map <- gene_map[gene_map$Accession %in% rownames(mat), ]
+
 cat(sprintf("After NA removal: %d proteins retained\n", nrow(mat)))
+cat(sprintf("PON1 retained: %s\n\n",
+            ifelse(any(pon1_acc %in% rownames(mat)), "YES", "NO")))
 
 # ── 4. limma DE analysis ──────────────────────────────────────────────────────
 design <- model.matrix(~ 0 + groups)
@@ -89,8 +114,9 @@ fit2 <- eBayes(fit2, trend = TRUE, robust = TRUE)
 
 results <- topTable(fit2, coef = "PD_vs_Healthy", number = Inf,
                     sort.by = "none") %>%
-  rownames_to_column("Gene") %>%
+  rownames_to_column("Accession") %>%
   as_tibble() %>%
+  left_join(gene_map, by = "Accession") %>%       # attach Gene symbol
   rename(log2FC = logFC, pval = P.Value, adj_pval = adj.P.Val) %>%
   mutate(
     sig       = adj_pval < 0.05 & abs(log2FC) > 0.58,
@@ -149,7 +175,7 @@ fmt_adjp <- function(p) {
 # ── Plot 1. PON1 Boxplot ──────────────────────────────────────────────────────
 cat("[Plot 1] PON1 boxplot (Healthy vs PD)\n")
 
-pon1_expr <- as.numeric(mat["PON1", ])
+pon1_expr <- as.numeric(mat[pon1_acc[1], ])
 pon1_dat  <- tibble(
   Expression = pon1_expr,
   Group      = groups
