@@ -190,11 +190,12 @@ if ("PON2" %in% results$Gene) {
   )
   pon2_row <- filter(results, Gene == "PON2")
   y_max    <- max(pon2_dat$Expression, na.rm = TRUE)
+  y_top    <- y_max + 1.2   # y축 상한: 2줄 annotation이 잘리지 않도록 여유 확보
 
   # p-value와 adj.p-value 두 줄로 표시
-  pval_label   <- fmt_pval(pon2_row$pval)
-  adjp_label   <- fmt_adjp(pon2_row$adj_pval)
-  sig_label    <- paste0(pval_label, "\n", adjp_label)
+  pval_label <- fmt_pval(as.numeric(pon2_row$pval))
+  adjp_label <- fmt_adjp(as.numeric(pon2_row$adj_pval))
+  sig_label  <- paste0(pval_label, "\n", adjp_label)
 
   p1 <- ggplot(pon2_dat, aes(x = Group, y = Expression, fill = Group)) +
     geom_boxplot(width = 0.45, outlier.shape = NA, alpha = 0.85,
@@ -211,14 +212,15 @@ if ("PON2" %in% results$Gene) {
              x = 2, xend = 2, y = y_max + 0.08, yend = y_max + 0.20,
              linewidth = 0.8, color = "black") +
     annotate("text",
-             x = 1.5, y = y_max + 0.38,
+             x = 1.5, y = y_max + 0.45,
              label = sig_label,
-             size = 3.8, fontface = "bold", lineheight = 1.3) +
+             size = 3.8, fontface = "bold", lineheight = 1.4) +
     scale_fill_manual(values  = c(HC = COL_HC, PD = COL_PD)) +
     scale_color_manual(values = c(HC = COL_HC, PD = COL_PD)) +
     scale_shape_manual(values = c(F1 = 16, F2 = 17, F3 = 15),
                        name   = "TMT Batch") +
     scale_x_discrete(labels = c(HC = "HC\n(n=15)", PD = "PD\n(n=15)")) +
+    scale_y_continuous(limits = c(NA, y_top)) +
     guides(shape = guide_legend(title = "TMT Batch")) +
     labs(
       title    = "PON2 Expression in Substantia Nigra",
@@ -261,19 +263,23 @@ if (length(pon_genes_present) > 0) {
     select(Gene, pval, adj_pval, log2FC) %>%
     left_join(pon_ymax, by = "Gene") %>%
     mutate(
-      pval_label = map_chr(pval, fmt_pval),
-      adjp_label = map_chr(adj_pval, fmt_adjp),
-      label      = paste0(pval_label, "\n", adjp_label)
+      pval_label = sapply(pval,     fmt_pval),
+      adjp_label = sapply(adj_pval, fmt_adjp),
+      label      = paste0(pval_label, "\n", adjp_label),
+      y_top      = y + 1.0   # 각 패널의 y 상한 (2줄 annotation 여유 포함)
     )
 
   p2 <- ggplot(pon_long, aes(x = Group, y = Expression, fill = Group)) +
     geom_boxplot(width = 0.45, outlier.shape = NA, alpha = 0.85,
                  color = "grey25", linewidth = 0.65) +
     geom_jitter(aes(color = Group), width = 0.12, size = 2.0, alpha = 0.75) +
+    # 투명 더미 포인트로 각 패널 y축 상한 확장 (free_y 스케일 대응)
+    geom_blank(data = pon_pvals, aes(x = 1, y = y_top),
+               inherit.aes = FALSE) +
     geom_text(data = pon_pvals,
-              aes(x = 1.5, y = y + 0.28, label = label),
+              aes(x = 1.5, y = y + 0.38, label = label),
               inherit.aes = FALSE, size = 3.5, fontface = "bold",
-              lineheight = 1.3) +
+              lineheight = 1.4) +
     geom_segment(data = pon_pvals,
                  aes(x = 1, xend = 2, y = y, yend = y),
                  inherit.aes = FALSE, linewidth = 0.7) +
@@ -309,73 +315,68 @@ cat("[Plot 3] Volcano plot (PON1 & PON2 only)\n")
 pon_dat <- results %>%
   filter(is_PON) %>%
   mutate(
-    log10p   = -log10(pmax(pval, 1e-10)),
-    pt_color = case_when(
-      Gene == "PON1" ~ COL_PON1,
-      Gene == "PON2" ~ COL_PON2
-    ),
-    pval_label   = map_chr(pval, fmt_pval),
-    adjp_label   = map_chr(adj_pval, fmt_adjp),
-    stat_label   = paste0(Gene, "\nlog2FC = ", round(log2FC, 3),
-                          "\n", pval_label, "\n", adjp_label)
+    log10p     = -log10(pmax(pval, 1e-10)),
+    pval_label = sapply(pval,     fmt_pval),
+    adjp_label = sapply(adj_pval, fmt_adjp),
+    stat_label = paste0(Gene,
+                        "\nlog2FC = ", sprintf("%+.3f", log2FC),
+                        "\n", pval_label,
+                        "\n", adjp_label)
   )
 
-# x/y 축 범위를 PON1·PON2 기준으로 설정 (여백 포함)
-x_range <- max(abs(pon_dat$log2FC), na.rm = TRUE)
-x_lim   <- c(-(x_range + 0.5), x_range + 0.5)
-y_max   <- max(pon_dat$log10p, na.rm = TRUE)
+if (nrow(pon_dat) == 0) {
+  cat("  PON1/PON2 모두 결측값으로 제거됨 — volcano 생략\n")
+} else {
+  p3 <- ggplot(pon_dat, aes(x = log2FC, y = log10p)) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed",
+               color = "grey45", linewidth = 0.55) +
+    geom_vline(xintercept = c(-0.58, 0.58), linetype = "dashed",
+               color = "grey45", linewidth = 0.55) +
+    geom_point(data = filter(pon_dat, Gene == "PON1"),
+               color = COL_PON1, size = 6, shape = 18) +
+    geom_point(data = filter(pon_dat, Gene == "PON2"),
+               color = COL_PON2, size = 6, shape = 18) +
+    geom_label_repel(
+      data          = filter(pon_dat, Gene == "PON1"),
+      aes(label     = stat_label),
+      size = 3.8, fontface = "bold",
+      fill = "#FFF9E6", color = COL_PON1,
+      box.padding = 1.0, point.padding = 0.6,
+      segment.color = COL_PON1, segment.size = 0.6,
+      nudge_x = -0.5, nudge_y = 1.0,
+      lineheight = 1.4, max.overlaps = Inf
+    ) +
+    geom_label_repel(
+      data          = filter(pon_dat, Gene == "PON2"),
+      aes(label     = stat_label),
+      size = 3.8, fontface = "bold",
+      fill = "#FFF3E0", color = COL_PON2,
+      box.padding = 1.0, point.padding = 0.6,
+      segment.color = COL_PON2, segment.size = 0.6,
+      nudge_x = 0.5, nudge_y = 1.0,
+      lineheight = 1.4, max.overlaps = Inf
+    ) +
+    annotate("text", x = -Inf, y = Inf,
+             label = "DOWN in PD", hjust = -0.1, vjust = 1.8,
+             color = "grey50", size = 3.8, fontface = "bold") +
+    annotate("text", x =  Inf, y = Inf,
+             label = "UP in PD", hjust = 1.1, vjust = 1.8,
+             color = "grey50", size = 3.8, fontface = "bold") +
+    scale_y_continuous(expand = expansion(mult = c(0.02, 0.25))) +
+    labs(
+      title    = "PON1 & PON2 — Substantia Nigra Proteomics (PD vs. HC)",
+      subtitle = "PXD037684 | Real Data | 11-plex TMT | n=15/group",
+      x = expression(log[2] ~ "Fold Change (PD / HC)"),
+      y = expression(-log[10] ~ italic(P) - value)
+    ) +
+    BASE_THEME
 
-p3 <- ggplot(pon_dat, aes(x = log2FC, y = log10p)) +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed",
-             color = "grey45", linewidth = 0.55) +
-  geom_vline(xintercept = c(-0.58, 0.58), linetype = "dashed",
-             color = "grey45", linewidth = 0.55) +
-  geom_point(data = filter(pon_dat, Gene == "PON1"),
-             color = COL_PON1, size = 6, shape = 18) +
-  geom_point(data = filter(pon_dat, Gene == "PON2"),
-             color = COL_PON2, size = 6, shape = 18) +
-  geom_label_repel(
-    data          = filter(pon_dat, Gene == "PON1"),
-    aes(label     = stat_label),
-    size = 3.8, fontface = "bold",
-    fill = "#FFF9E6", color = COL_PON1,
-    box.padding = 0.8, point.padding = 0.6,
-    segment.color = COL_PON1, segment.size = 0.6,
-    nudge_x = -0.3, nudge_y = 0.5,
-    lineheight = 1.3, max.overlaps = Inf
-  ) +
-  geom_label_repel(
-    data          = filter(pon_dat, Gene == "PON2"),
-    aes(label     = stat_label),
-    size = 3.8, fontface = "bold",
-    fill = "#FFF3E0", color = COL_PON2,
-    box.padding = 0.8, point.padding = 0.6,
-    segment.color = COL_PON2, segment.size = 0.6,
-    nudge_x = 0.3, nudge_y = 0.5,
-    lineheight = 1.3, max.overlaps = Inf
-  ) +
-  annotate("text", x = x_lim[1], y = Inf,
-           label = "DOWN in PD", hjust = -0.1, vjust = 1.8,
-           color = "grey50", size = 3.8, fontface = "bold") +
-  annotate("text", x = x_lim[2], y = Inf,
-           label = "UP in PD", hjust = 1.1, vjust = 1.8,
-           color = "grey50", size = 3.8, fontface = "bold") +
-  scale_x_continuous(limits = x_lim) +
-  scale_y_continuous(limits = c(0, y_max + 1),
-                     expand = expansion(mult = c(0.02, 0.12))) +
-  labs(
-    title    = "PON1 & PON2 — Substantia Nigra Proteomics (PD vs. HC)",
-    subtitle = "PXD037684 | Real Data | 11-plex TMT | n=15/group",
-    x = expression(log[2] ~ "Fold Change (PD / HC)"),
-    y = expression(-log[10] ~ italic(P) - value)
-  ) +
-  BASE_THEME
-
-ggsave(file.path(OUTPUT_DIR, "plot3_volcano_PON1_PON2.pdf"), p3,
-       width = 7, height = 6)
-ggsave(file.path(OUTPUT_DIR, "plot3_volcano_PON1_PON2.png"), p3,
-       width = 7, height = 6, dpi = 180)
-cat("  Saved: plot3_volcano_PON1_PON2.pdf/.png\n")
+  ggsave(file.path(OUTPUT_DIR, "plot3_volcano_PON1_PON2.pdf"), p3,
+         width = 7, height = 6)
+  ggsave(file.path(OUTPUT_DIR, "plot3_volcano_PON1_PON2.png"), p3,
+         width = 7, height = 6, dpi = 180)
+  cat("  Saved: plot3_volcano_PON1_PON2.pdf/.png\n")
+}
 
 # ── 8. 결과 CSV 저장 ──────────────────────────────────────────────────────────
 write_csv(results, file.path(OUTPUT_DIR, "limma_results_all.csv"))
