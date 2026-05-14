@@ -35,18 +35,30 @@ cat("=== PD CSF Proteomics | PON1 Expression Analysis ===\n")
 cat("Input:", INPUT_FILE, "\n\n")
 
 # ── 2. Read data ──────────────────────────────────────────────────────────────
-# Row 1: group labels (PD/Control), starting from column 4
+# Read the full sheet without headers to get both the group row and data
+# Row 1: group labels (NA, NA, NA, PD/Control, ...)
 # Row 2: column headers (Accession, Gene symbol, p-value, CSF01..CSF80)
-raw_groups <- read_excel(INPUT_FILE, sheet = "Normalized",
-                         col_names = FALSE, n_max = 1) %>%
-  unlist() %>% as.character()
+raw_full <- read_excel(INPUT_FILE, sheet = "Normalized",
+                       col_names = FALSE)
 
+# Extract group labels and header names by position (preserve NAs)
+group_row  <- as.character(raw_full[1, ])   # length = total columns
+header_row <- as.character(raw_full[2, ])   # length = total columns
+
+# Identify sample columns by CSF pattern in the header row
+csf_idx    <- which(grepl("^CSF\\d+$", header_row))
+group_labels <- group_row[csf_idx]          # exactly 80 group labels
+
+# Read protein data using row 2 as header
 raw <- read_excel(INPUT_FILE, sheet = "Normalized", skip = 1)
 cat(sprintf("Loaded: %d proteins x %d columns\n", nrow(raw), ncol(raw)))
 
-# Sample columns: CSF01–CSF80 (columns 4 onward)
-sample_cols <- names(raw)[4:ncol(raw)]
-group_labels <- raw_groups[4:length(raw_groups)]  # PD or Control
+# Sample column names in the data frame (CSF01-CSF80)
+sample_cols <- names(raw)[grepl("^CSF\\d+$", names(raw))]
+
+cat(sprintf("Sample columns: %d | Group labels: %d\n",
+            length(sample_cols), length(group_labels)))
+stopifnot(length(sample_cols) == length(group_labels))
 
 # Rename Control -> Healthy for clarity
 group_labels[group_labels == "Control"] <- "Healthy"
