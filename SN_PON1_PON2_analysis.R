@@ -129,11 +129,11 @@ min_pd <- ceiling(length(pd_idx) * 0.50)
 keep_rows <- (rowSums(!is.na(mat_log[, hc_idx, drop = FALSE])) >= min_hc) &
              (rowSums(!is.na(mat_log[, pd_idx, drop = FALSE])) >= min_pd)
 mat_log   <- mat_log[keep_rows, ]
-# Make rownames unique BEFORE ComBat/limma so topTable gene names stay consistent
-# (R data frames deduplicate rownames with ".1", ".2" suffixes, so the matrix
-#  must already have unique names to avoid a mismatch between mat_cb rownames
-#  and results$Gene)
-rownames(mat_log) <- make.unique(rownames(mat_log))
+# Replace NA / empty gene names before make.unique so topTable never sees NA rownames
+rn_raw <- rownames(mat_log)
+rn_raw[is.na(rn_raw) | rn_raw == "" | rn_raw == "NA"] <-
+  paste0("Unknown_", which(is.na(rn_raw) | rn_raw == "" | rn_raw == "NA"))
+rownames(mat_log) <- make.unique(rn_raw)
 
 cat(sprintf("After ≥50%% per-group filter: %d proteins retained\n", nrow(mat_log)))
 cat(sprintf("PON1 retained: %s | PON2 retained: %s\n\n",
