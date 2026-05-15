@@ -1,30 +1,32 @@
 # =============================================================================
 # Dataset : SN protein data.xlsx  (pon2 branch)
 # Study   : Parkinson's Disease — Substantia Nigra Proteomics
-# Method  : Normalized intensity | Healthy vs PD
+# Format  : Thermo PD export | 11-plex TMT, 3 batches (F1/F2/F3)
+#           Column names: "Abundances (Grouped): Fx, xxx_HC/PD/MP"
 #
 # Analysis:
-#   1. limma DE (PD vs Healthy)
-#   2. PON1 + PON2 boxplot (side-by-side) with p-value annotation
-#   3. Full volcano plot with PON1 & PON2 highlighted
+#   1. Per-batch MP normalisation → log2
+#   2. ComBat batch correction
+#   3. limma DE (PD vs HC)
+#   4. PON1 + PON2 side-by-side boxplot with p-value annotation
+#   5. Full volcano plot with PON1 & PON2 highlighted
 # =============================================================================
 
 # ── 0. Packages ───────────────────────────────────────────────────────────────
 suppressPackageStartupMessages({
   if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
-  if (!requireNamespace("limma", quietly = TRUE))
-    BiocManager::install("limma", ask = FALSE)
+  for (pkg in c("limma", "sva")) {
+    if (!requireNamespace(pkg, quietly = TRUE))
+      BiocManager::install(pkg, ask = FALSE)
+  }
   for (pkg in c("readxl", "tidyverse", "ggrepel", "ggpubr", "patchwork")) {
     if (!requireNamespace(pkg, quietly = TRUE))
       install.packages(pkg)
   }
-  library(limma)
-  library(readxl)
-  library(tidyverse)
-  library(ggrepel)
-  library(ggpubr)
-  library(patchwork)
+  library(limma);   library(sva)
+  library(readxl);  library(tidyverse)
+  library(ggrepel); library(ggpubr); library(patchwork)
 })
 
 # ── 1. File paths ─────────────────────────────────────────────────────────────
@@ -35,136 +37,137 @@ dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 cat("=== PD SN Proteomics | PON1 & PON2 Expression Analysis ===\n")
 cat("Input:", INPUT_FILE, "\n\n")
 
-# ── 2. Sheet detection ────────────────────────────────────────────────────────
+# ── 2. Sheet selection ────────────────────────────────────────────────────────
 all_sheets <- excel_sheets(INPUT_FILE)
 cat("Available sheets:", paste(all_sheets, collapse = ", "), "\n")
 
-# Prefer "Normalized" sheet; fall back to first sheet
-sheet_name <- if ("Normalized" %in% all_sheets) {
-  "Normalized"
-} else {
-  all_sheets[1]
-}
+sheet_name <- all_sheets[1]   # use first sheet
 cat("Using sheet:", sheet_name, "\n\n")
 
 # ── 3. Read data ──────────────────────────────────────────────────────────────
-# Layout (CSF data.xlsx convention):
-#   Row 1 : group labels  — first 3 cols = metadata, cols 4+ = "PD"/"Healthy"/etc.
-#   Row 2 : column headers
-#   Row 3+: protein rows  (log2-normalized intensities)
+raw <- read_excel(INPUT_FILE, sheet = sheet_name)
+cat(sprintf("Loaded: %d proteins x %d columns\n", nrow(raw), ncol(raw)))
 
-# Step A — read row 1 for group labels (no header so col positions are exact)
-row1 <- read_excel(INPUT_FILE, sheet = sheet_name,
-                   col_names = FALSE, n_max = 1)
-n_cols_total <- ncol(row1)
+# ── 4. Abundance column extraction ───────────────────────────────────────────
+# Column format: "Abundances (Grouped): Fx, xxx_HC"  /  "_PD"  /  "_MP"
+abund_cols <- names(raw)[grepl("^Abundances \\(Grouped\\)", names(raw))]
+cat(sprintf("Abundance columns found: %d\n", length(abund_cols)))
 
-cat(sprintf("Total columns in sheet: %d\n", n_cols_total))
-cat("Row-1 unique values:", paste(unique(as.character(unlist(row1))), collapse = " | "), "\n\n")
+hc_cols <- abund_cols[grepl("_HC$", abund_cols)]
+pd_cols <- abund_cols[grepl("_PD$", abund_cols)]
+mp_cols <- abund_cols[grepl("_MP$", abund_cols)]
 
-# All values in row 1 (full row, not just cols 4+)
-row1_all <- as.character(unlist(row1[1, ], use.names = FALSE))
+cat(sprintf("  HC: %d  |  PD: %d  |  MP (master pool): %d\n\n",
+            length(hc_cols), length(pd_cols), length(mp_cols)))
 
-# Normalise group labels regardless of position
-LABEL_MAP <- c(
-  "Control" = "Healthy", "HC" = "Healthy", "Normal" = "Healthy",
-  "healthy" = "Healthy", "control" = "Healthy", "hc" = "Healthy",
-  "PD" = "PD", "Parkinson" = "PD", "pd" = "PD", "parkinson" = "PD"
-)
-row1_norm <- dplyr::recode(row1_all, !!!LABEL_MAP)
+if (length(hc_cols) == 0 || length(pd_cols) == 0)
+  stop("No _HC or _PD columns found. Check column name format.")
 
-# Identify ALL sample columns (any column whose row-1 label is Healthy or PD)
-valid_idx  <- which(row1_norm %in% c("Healthy", "PD"))
-groups_vec <- row1_norm[valid_idx]
-groups     <- factor(groups_vec, levels = c("Healthy", "PD"))
+# Batch label (F1 / F2 / F3) from column name
+get_batch <- function(cols) sub(".*: (F[0-9]+),.*", "\\1", cols)
 
-cat(sprintf("Groups detected — Healthy: %d  PD: %d  (out of %d total cols)\n",
-            sum(groups == "Healthy"), sum(groups == "PD"), n_cols_total))
+batches_all <- unique(get_batch(c(hc_cols, pd_cols)))
+cat("Batches detected:", paste(sort(batches_all), collapse = ", "), "\n\n")
 
-if (length(valid_idx) == 0) {
-  stop(paste0(
-    "No group labels ('Healthy'/'Control'/'HC'/'PD') found in row 1.\n",
-    "Row-1 contents: ", paste(row1_all, collapse = " | ")
-  ))
+# ── 5. Gene symbol column ─────────────────────────────────────────────────────
+# Try common column name variants
+gene_col_candidates <- c("Gene Symbol", "Gene.Symbol", "Gene", "gene_symbol",
+                          "Genes", "gene", "GENE")
+gene_col <- intersect(gene_col_candidates, names(raw))[1]
+if (is.na(gene_col)) {
+  cat("Available columns:\n"); print(names(raw)[1:min(30, ncol(raw))])
+  stop("Gene symbol column not found. Edit gene_col_candidates above.")
 }
+cat("Gene column:", gene_col, "\n\n")
+genes <- as.character(raw[[gene_col]])
 
-# Step B — protein data (row 2 → header)
-raw <- read_excel(INPUT_FILE, sheet = sheet_name, skip = 1)
-cat(sprintf("Proteins loaded: %d  |  Columns after skip: %d\n", nrow(raw), ncol(raw)))
+# ── 6. Per-batch MP normalisation → log2 ─────────────────────────────────────
+norm_list <- list()
 
-# Metadata: col 1 = Accession, col 2 = Gene Symbol (positional)
-accessions   <- as.character(raw[[1]])
-gene_symbols <- as.character(raw[[2]])
+for (b in sort(batches_all)) {
+  hc_b <- hc_cols[get_batch(hc_cols) == b]
+  pd_b <- pd_cols[get_batch(pd_cols) == b]
+  mp_b <- mp_cols[get_batch(mp_cols) == b]
 
-# Map valid_idx (1-based in row1) → column names in raw
-# raw has same column order as row1 (read_excel adds header from row 2 = skip 1)
-sample_cols <- names(raw)[valid_idx]
-stopifnot(length(sample_cols) == length(groups_vec))
-
-cat(sprintf("Sample columns used: %d  |  Group labels: %d\n\n",
-            length(sample_cols), length(groups_vec)))
-
-# ── 4. Expression matrix ──────────────────────────────────────────────────────
-mat <- as.matrix(raw[, sample_cols])
-storage.mode(mat) <- "numeric"
-rownames(mat) <- seq_len(nrow(mat))
-
-cat(sprintf("NA summary: %d proteins with ≥1 NA  |  %d fully complete\n",
-            sum(rowSums(is.na(mat)) > 0),
-            sum(rowSums(is.na(mat)) == 0)))
-
-# ── NA filter: keep proteins observed in ≥50% of samples in EACH group ────────
-min_obs_frac <- 0.50
-hc_idx <- which(groups == "Healthy")
-pd_idx <- which(groups == "PD")
-min_hc <- ceiling(length(hc_idx) * min_obs_frac)
-min_pd <- ceiling(length(pd_idx) * min_obs_frac)
-
-keep <- (rowSums(!is.na(mat[, hc_idx, drop = FALSE])) >= min_hc) &
-        (rowSums(!is.na(mat[, pd_idx, drop = FALSE])) >= min_pd)
-
-cat(sprintf("After ≥50%% per-group filter: %d / %d proteins retained\n",
-            sum(keep), nrow(mat)))
-
-mat       <- mat[keep, ]
-acc_keep  <- accessions[keep]
-gene_keep <- gene_symbols[keep]
-
-# Impute remaining NAs with the per-protein minimum observed value / 2
-# (standard left-censored / MNAR approach for proteomics)
-for (i in seq_len(nrow(mat))) {
-  na_pos <- is.na(mat[i, ])
-  if (any(na_pos)) {
-    mat[i, na_pos] <- min(mat[i, !na_pos], na.rm = TRUE) / 2
+  if (length(mp_b) == 0) {
+    # No MP for this batch — skip MP normalisation, just log2 directly
+    warning(sprintf("No MP column for batch %s; skipping MP normalisation.", b))
+    for (col in c(hc_b, pd_b)) {
+      v <- as.numeric(raw[[col]])
+      v[v <= 0] <- NA
+      norm_list[[col]] <- log2(v)
+    }
+  } else {
+    mp_vals <- as.numeric(raw[[mp_b[1]]])
+    mp_vals[mp_vals <= 0] <- NA
+    for (col in c(hc_b, pd_b)) {
+      v <- as.numeric(raw[[col]]) / mp_vals
+      v[v <= 0] <- NA
+      norm_list[[col]] <- log2(v)
+    }
   }
 }
 
-cat(sprintf("PON1 in set: %s | PON2 in set: %s\n\n",
-            ifelse("PON1" %in% gene_keep, "YES", "NO"),
-            ifelse("PON2" %in% gene_keep, "YES", "NO")))
+sample_cols   <- c(hc_cols, pd_cols)
+group_labels  <- c(rep("HC", length(hc_cols)), rep("PD", length(pd_cols)))
+batch_labels  <- get_batch(sample_cols)
 
-# ── 5. limma DE analysis ──────────────────────────────────────────────────────
-design   <- model.matrix(~ 0 + groups)
-colnames(design) <- levels(groups)
+mat_log <- do.call(cbind, norm_list[sample_cols])
+rownames(mat_log) <- genes
 
-cont_mat <- makeContrasts(PD_vs_Healthy = PD - Healthy, levels = design)
-fit      <- lmFit(mat, design)
+cat(sprintf("Samples: HC=%d  PD=%d\n", sum(group_labels == "HC"),
+            sum(group_labels == "PD")))
+cat(sprintf("Proteins before NA filter: %d\n", nrow(mat_log)))
+
+# ── 7. NA filter ─────────────────────────────────────────────────────────────
+# Keep proteins with ≥50% valid values in EACH group
+hc_idx <- which(group_labels == "HC")
+pd_idx <- which(group_labels == "PD")
+min_hc <- ceiling(length(hc_idx) * 0.50)
+min_pd <- ceiling(length(pd_idx) * 0.50)
+
+keep_rows <- (rowSums(!is.na(mat_log[, hc_idx, drop = FALSE])) >= min_hc) &
+             (rowSums(!is.na(mat_log[, pd_idx, drop = FALSE])) >= min_pd)
+mat_log   <- mat_log[keep_rows, ]
+cat(sprintf("After ≥50%% per-group filter: %d proteins retained\n", nrow(mat_log)))
+cat(sprintf("PON1 retained: %s | PON2 retained: %s\n\n",
+            ifelse("PON1" %in% rownames(mat_log), "YES", "NO"),
+            ifelse("PON2" %in% rownames(mat_log), "YES", "NO")))
+
+# ── 8. ComBat batch correction ────────────────────────────────────────────────
+# Impute NAs before ComBat (half-minimum per protein)
+mat_imp <- mat_log
+for (i in seq_len(nrow(mat_imp))) {
+  na_pos <- is.na(mat_imp[i, ])
+  if (any(na_pos))
+    mat_imp[i, na_pos] <- min(mat_imp[i, !na_pos], na.rm = TRUE) / 2
+}
+
+mod    <- model.matrix(~ group_labels)
+mat_cb <- ComBat(
+  dat         = mat_imp,
+  batch       = batch_labels,
+  mod         = mod,
+  par.prior   = TRUE,
+  prior.plots = FALSE
+)
+cat("ComBat batch correction done.\n\n")
+
+# ── 9. limma DE analysis ──────────────────────────────────────────────────────
+groups <- factor(group_labels, levels = c("HC", "PD"))
+batch  <- factor(batch_labels)
+design <- model.matrix(~ 0 + groups + batch)
+colnames(design) <- make.names(sub("groups|batch", "", colnames(design)))
+
+cont_mat <- makeContrasts(PD_vs_HC = PD - HC, levels = design)
+fit      <- lmFit(mat_cb, design)
 fit2     <- contrasts.fit(fit, cont_mat)
 fit2     <- eBayes(fit2, trend = TRUE, robust = TRUE)
 
-tt <- topTable(fit2, coef = "PD_vs_Healthy",
-               number = Inf, sort.by = "none")
-stopifnot(nrow(tt) == length(gene_keep))
-
-results <- tibble(
-  Accession = acc_keep,
-  Gene      = gene_keep,
-  log2FC    = tt$logFC,
-  AveExpr   = tt$AveExpr,
-  t_stat    = tt$t,
-  pval      = tt$P.Value,
-  adj_pval  = tt$adj.P.Val,
-  B         = tt$B
-) %>%
+results <- topTable(fit2, coef = "PD_vs_HC", number = Inf, sort.by = "none") %>%
+  rownames_to_column("Gene") %>%
+  as_tibble() %>%
+  rename(log2FC = logFC, pval = P.Value, adj_pval = adj.P.Val) %>%
   mutate(
     sig       = adj_pval < 0.05 & abs(log2FC) > 0.58,
     direction = case_when(
@@ -177,14 +180,14 @@ results <- tibble(
     is_PON  = Gene %in% c("PON1", "PON2")
   )
 
-cat(sprintf("limma results: UP=%d | DOWN=%d (adj.P<0.05, |log2FC|>0.58)\n",
+cat(sprintf("limma: UP=%d | DOWN=%d (adj.P<0.05, |log2FC|>0.58)\n\n",
             sum(results$direction == "UP"),
             sum(results$direction == "DOWN")))
 
 for (g in c("PON1", "PON2")) {
   r <- filter(results, Gene == g)
   if (nrow(r) == 0) {
-    cat(sprintf("  %s: not detected (filtered as NA)\n", g))
+    cat(sprintf("  %s: not detected (filtered)\n", g))
   } else {
     cat(sprintf("  %s | log2FC=%+.3f | p=%.4f | adj.p=%.4f | %s\n",
                 g, r$log2FC, r$pval, r$adj_pval,
@@ -196,14 +199,14 @@ cat("\n")
 write_csv(results, file.path(OUTPUT_DIR, "limma_results_all.csv"))
 cat("Saved: limma_results_all.csv\n\n")
 
-# ── 6. Visual theme & helpers ─────────────────────────────────────────────────
-COL_HEALTHY <- "#4575B4"
-COL_PD      <- "#D73027"
-COL_PON1    <- "#E69F00"
-COL_PON2    <- "#FF4500"
-COL_UP      <- "#CC4444"
-COL_DOWN    <- "#4477AA"
-COL_NS      <- "grey70"
+# ── 10. Visual theme & helpers ────────────────────────────────────────────────
+COL_HC   <- "#4575B4"
+COL_PD   <- "#D73027"
+COL_PON1 <- "#E69F00"
+COL_PON2 <- "#FF4500"
+COL_UP   <- "#CC4444"
+COL_DOWN <- "#4477AA"
+COL_NS   <- "grey70"
 
 BASE_THEME <- theme_classic(base_size = 13) +
   theme(
@@ -214,88 +217,71 @@ BASE_THEME <- theme_classic(base_size = 13) +
   )
 
 fmt_pval <- function(p) {
-  if (p < 0.001) "p < 0.001"
-  else if (p < 0.01) "p < 0.01"
-  else sprintf("p = %.3f", p)
+  if      (p < 0.001) "p < 0.001"
+  else if (p < 0.01)  "p < 0.01"
+  else                sprintf("p = %.3f", p)
 }
 fmt_adjp <- function(p) {
-  if (p < 0.001) "adj.p < 0.001"
-  else if (p < 0.01) "adj.p < 0.01"
-  else sprintf("adj.p = %.3f", p)
+  if      (p < 0.001) "adj.p < 0.001"
+  else if (p < 0.01)  "adj.p < 0.01"
+  else                sprintf("adj.p = %.3f", p)
 }
 
-n_healthy <- sum(groups == "Healthy")
-n_pd      <- sum(groups == "PD")
+n_hc <- sum(group_labels == "HC")
+n_pd <- sum(group_labels == "PD")
 
-# ── Plot 1 : PON1 + PON2 Boxplot (side-by-side facets) ───────────────────────
+# ── Plot 1 : PON1 + PON2 side-by-side boxplot ─────────────────────────────────
 cat("[Plot 1] PON1 & PON2 boxplot\n")
 
-pon_genes_present <- intersect(c("PON1", "PON2"), gene_keep)
+pon_genes_present <- intersect(c("PON1", "PON2"), rownames(mat_cb))
 
 if (length(pon_genes_present) == 0) {
   cat("  Neither PON1 nor PON2 detected — boxplot skipped.\n")
 } else {
-  # Build long-format expression table
   pon_long <- map_dfr(pon_genes_present, function(g) {
-    idx <- which(gene_keep == g)[1]
     tibble(
       Gene       = g,
-      Expression = as.numeric(mat[idx, ]),
-      Group      = groups
+      Expression = as.numeric(mat_cb[g, sample_cols]),
+      Group      = factor(group_labels, levels = c("HC", "PD")),
+      Batch      = batch_labels
     )
   })
 
-  # Per-gene y positions for significance brackets
-  pon_annot <- results %>%
-    filter(Gene %in% pon_genes_present) %>%
-    select(Gene, pval, adj_pval, log2FC) %>%
-    group_by(Gene) %>%
-    mutate(
-      y_max   = max(pon_long$Expression[pon_long$Gene == Gene], na.rm = TRUE),
-      rng     = diff(range(pon_long$Expression[pon_long$Gene == Gene], na.rm = TRUE)),
-      y_seg   = y_max + rng * 0.08,
-      y_lbl   = y_max + rng * 0.18,
-      y_lim   = y_max + rng * 0.48,
-      label   = paste0(sapply(pval,     fmt_pval), "\n",
-                       sapply(adj_pval, fmt_adjp)),
-      x_label = 1.5
-    ) %>%
-    ungroup()
-
-  # Recompute per-gene stats outside dplyr to avoid row-wise issues
-  pon_annot <- results %>%
-    filter(Gene %in% pon_genes_present) %>%
-    select(Gene, pval, adj_pval, log2FC) %>%
-    rowwise() %>%
-    mutate(
-      gene_expr = list(pon_long$Expression[pon_long$Gene == Gene]),
-      y_max     = max(unlist(gene_expr), na.rm = TRUE),
-      rng       = diff(range(unlist(gene_expr), na.rm = TRUE)),
+  # Per-gene annotation (y positions for significance bracket)
+  pon_annot <- map_dfr(pon_genes_present, function(g) {
+    r   <- filter(results, Gene == g)
+    dat <- filter(pon_long, Gene == g)
+    y_max <- max(dat$Expression, na.rm = TRUE)
+    rng   <- diff(range(dat$Expression, na.rm = TRUE))
+    tibble(
+      Gene      = g,
+      pval      = r$pval,
+      adj_pval  = r$adj_pval,
+      log2FC    = r$log2FC,
+      y_max     = y_max,
       y_seg     = y_max + rng * 0.08,
       y_lbl     = y_max + rng * 0.20,
-      y_lim     = y_max + rng * 0.50,
-      label     = paste0(fmt_pval(pval), "\n", fmt_adjp(adj_pval)),
+      y_lim     = y_max + rng * 0.52,
+      label     = paste0(fmt_pval(r$pval), "\n", fmt_adjp(r$adj_pval)),
       x_label   = 1.5
-    ) %>%
-    ungroup() %>%
-    select(-gene_expr)
+    )
+  })
 
   p1 <- ggplot(pon_long, aes(x = Group, y = Expression, fill = Group)) +
     geom_boxplot(width = 0.45, outlier.shape = NA, alpha = 0.85,
                  color = "grey25", linewidth = 0.65) +
-    geom_jitter(aes(color = Group), width = 0.12, size = 2.0, alpha = 0.70) +
-    # significance bracket & label (per facet via blank + geom_text + segment)
-    geom_blank(data = pon_annot, aes(x = 1, y = y_lim), inherit.aes = FALSE) +
+    geom_jitter(aes(color = Group, shape = Batch),
+                width = 0.12, size = 2.5, alpha = 0.80) +
+    geom_blank(data = pon_annot,
+               aes(x = 1, y = y_lim), inherit.aes = FALSE) +
     geom_segment(data = pon_annot,
                  aes(x = 1, xend = 2, y = y_seg, yend = y_seg),
                  inherit.aes = FALSE, linewidth = 0.8, color = "black") +
     geom_segment(data = pon_annot,
-                 aes(x = 1, xend = 1,
-                     y = y_max + (y_seg - y_max) * 0.25, yend = y_seg),
+                 aes(x = 1, xend = 1, y = y_max + 0.02, yend = y_seg),
                  inherit.aes = FALSE, linewidth = 0.8, color = "black") +
     geom_segment(data = pon_annot,
-                 aes(x = 2, xend = 2,
-                     y = y_max + (y_seg - y_max) * 0.25, yend = y_seg),
+                 aes(x = 2, xend = 2, y = y_max + 0.02, yend = y_seg),
                  inherit.aes = FALSE, linewidth = 0.8, color = "black") +
     geom_text(data = pon_annot,
               aes(x = x_label, y = y_lbl, label = label),
@@ -303,27 +289,27 @@ if (length(pon_genes_present) == 0) {
               size = 3.8, fontface = "bold", lineheight = 1.4) +
     facet_wrap(~ Gene, scales = "free_y", ncol = 2) +
     scale_fill_manual(
-      values = c(Healthy = COL_HEALTHY, PD = COL_PD),
-      labels = c(Healthy = sprintf("Healthy (n=%d)", n_healthy),
-                 PD      = sprintf("PD (n=%d)",      n_pd))
+      values = c(HC = COL_HC, PD = COL_PD),
+      labels = c(HC = sprintf("HC (n=%d)", n_hc),
+                 PD = sprintf("PD (n=%d)", n_pd))
     ) +
-    scale_color_manual(
-      values = c(Healthy = COL_HEALTHY, PD = COL_PD)
-    ) +
+    scale_color_manual(values = c(HC = COL_HC, PD = COL_PD)) +
+    scale_shape_manual(values = c(F1 = 16, F2 = 17, F3 = 15),
+                       name   = "TMT Batch") +
     scale_x_discrete(
-      labels = c(Healthy = sprintf("Healthy\n(n=%d)", n_healthy),
-                 PD      = sprintf("PD\n(n=%d)",      n_pd))
+      labels = c(HC = sprintf("HC\n(n=%d)", n_hc),
+                 PD = sprintf("PD\n(n=%d)", n_pd))
     ) +
     labs(
-      title    = "PON1 & PON2 Expression in Substantia Nigra — Healthy vs PD",
-      subtitle = "limma | log2 Normalized Intensity",
+      title    = "PON1 & PON2 Expression in Substantia Nigra — HC vs PD",
+      subtitle = "limma | log2(sample/MP) | ComBat batch correction",
       x        = NULL,
-      y        = expression(log[2] ~ "Normalized Intensity"),
+      y        = expression(log[2] ~ "(Normalised TMT Intensity)"),
       fill     = "Group"
     ) +
     BASE_THEME +
     theme(
-      legend.position  = "bottom",
+      legend.position  = "right",
       strip.text       = element_text(face = "bold", size = 13),
       strip.background = element_rect(fill = "grey92", color = NA)
     )
@@ -348,34 +334,25 @@ vol_dat <- results %>%
       direction == "DOWN" ~ "DOWN",
       TRUE                ~ "NS"
     ),
-    dot_size  = case_when(is_PON1 | is_PON2 ~ 5.5, TRUE ~ 1.8),
-    dot_alpha = case_when(is_PON1 | is_PON2 ~ 1.0, TRUE ~ 0.50)
+    dot_size  = if_else(is_PON1 | is_PON2, 5.5, 1.8),
+    dot_alpha = if_else(is_PON1 | is_PON2, 1.0, 0.50)
   ) %>%
-  arrange(is_PON)   # draw PON proteins last (on top)
+  arrange(is_PON)   # PON proteins drawn on top
 
 color_scale <- c(
-  PON1 = COL_PON1,
-  PON2 = COL_PON2,
-  UP   = COL_UP,
-  DOWN = COL_DOWN,
-  NS   = COL_NS
+  PON1 = COL_PON1, PON2 = COL_PON2,
+  UP   = COL_UP,   DOWN = COL_DOWN, NS = COL_NS
 )
 
-# Build per-gene annotation labels
 pon_vol <- filter(vol_dat, is_PON) %>%
   mutate(
     stat_label = paste0(
       Gene,
       "\nlog2FC = ", sprintf("%+.3f", log2FC), "\n",
-      sapply(pval,     fmt_pval), "\n",
-      sapply(adj_pval, fmt_adjp)
-    )
-  )
-
-# Nudge directions so labels don't overlap each other
-nudge_df <- pon_vol %>%
-  mutate(
-    nx = ifelse(log2FC < 0, -0.8, 0.8),
+      map_chr(pval,     fmt_pval), "\n",
+      map_chr(adj_pval, fmt_adjp)
+    ),
+    nx = if_else(log2FC < 0, -0.8, 0.8),
     ny = 1.5
   )
 
@@ -384,33 +361,30 @@ p2 <- ggplot(vol_dat, aes(x = log2FC, y = log10p)) +
              color = "grey45", linewidth = 0.55) +
   geom_vline(xintercept = c(-0.58, 0.58), linetype = "dashed",
              color = "grey45", linewidth = 0.55) +
-  # Background proteins
   geom_point(data = filter(vol_dat, !is_PON),
              aes(color = dot_color, size = dot_size, alpha = dot_alpha)) +
-  # PON1 & PON2 on top
   geom_point(data = filter(vol_dat, is_PON),
              aes(color = dot_color), size = 5.5, alpha = 1.0, shape = 18) +
-  # Labels for PON1 & PON2
   geom_label_repel(
-    data          = filter(nudge_df, Gene == "PON1"),
+    data          = filter(pon_vol, Gene == "PON1"),
     aes(label     = stat_label),
-    size          = 3.8, fontface = "bold",
-    fill          = "#FFF9E6", color = COL_PON1,
-    box.padding   = 1.0, point.padding = 0.6,
-    segment.color = COL_PON1, segment.size  = 0.7,
-    nudge_x = filter(nudge_df, Gene == "PON1")$nx,
-    nudge_y = filter(nudge_df, Gene == "PON1")$ny,
+    size = 3.8, fontface = "bold",
+    fill = "#FFF9E6", color = COL_PON1,
+    box.padding = 1.0, point.padding = 0.6,
+    segment.color = COL_PON1, segment.size = 0.7,
+    nudge_x = filter(pon_vol, Gene == "PON1")$nx,
+    nudge_y = filter(pon_vol, Gene == "PON1")$ny,
     lineheight = 1.4, max.overlaps = Inf
   ) +
   geom_label_repel(
-    data          = filter(nudge_df, Gene == "PON2"),
+    data          = filter(pon_vol, Gene == "PON2"),
     aes(label     = stat_label),
-    size          = 3.8, fontface = "bold",
-    fill          = "#FFF3E0", color = COL_PON2,
-    box.padding   = 1.0, point.padding = 0.6,
-    segment.color = COL_PON2, segment.size  = 0.7,
-    nudge_x = filter(nudge_df, Gene == "PON2")$nx,
-    nudge_y = filter(nudge_df, Gene == "PON2")$ny,
+    size = 3.8, fontface = "bold",
+    fill = "#FFF3E0", color = COL_PON2,
+    box.padding = 1.0, point.padding = 0.6,
+    segment.color = COL_PON2, segment.size = 0.7,
+    nudge_x = filter(pon_vol, Gene == "PON2")$nx,
+    nudge_y = filter(pon_vol, Gene == "PON2")$ny,
     lineheight = 1.4, max.overlaps = Inf
   ) +
   scale_color_manual(
@@ -419,8 +393,7 @@ p2 <- ggplot(vol_dat, aes(x = log2FC, y = log10p)) +
     labels = c(
       UP   = sprintf("UP in PD (n=%d)",   sum(results$direction == "UP")),
       DOWN = sprintf("DOWN in PD (n=%d)", sum(results$direction == "DOWN")),
-      PON1 = "PON1",
-      PON2 = "PON2",
+      PON1 = "PON1", PON2 = "PON2",
       NS   = "Not significant"
     ),
     name = NULL
@@ -435,9 +408,10 @@ p2 <- ggplot(vol_dat, aes(x = log2FC, y = log10p)) +
            color = "grey45", size = 3.5, fontface = "italic") +
   scale_y_continuous(expand = expansion(mult = c(0.02, 0.15))) +
   labs(
-    title    = "Volcano Plot — SN Proteomics (PD vs Healthy)",
-    subtitle = sprintf("limma | %d proteins | PON1 & PON2 highlighted", nrow(results)),
-    x        = expression(log[2] ~ "Fold Change (PD / Healthy)"),
+    title    = "Volcano Plot — SN Proteomics (PD vs HC)",
+    subtitle = sprintf("limma | %d proteins | PON1 & PON2 highlighted",
+                       nrow(results)),
+    x        = expression(log[2] ~ "Fold Change (PD / HC)"),
     y        = expression(-log[10] ~ italic(P) * "-value")
   ) +
   BASE_THEME +
