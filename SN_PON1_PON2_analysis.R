@@ -129,10 +129,16 @@ min_pd <- ceiling(length(pd_idx) * 0.50)
 keep_rows <- (rowSums(!is.na(mat_log[, hc_idx, drop = FALSE])) >= min_hc) &
              (rowSums(!is.na(mat_log[, pd_idx, drop = FALSE])) >= min_pd)
 mat_log   <- mat_log[keep_rows, ]
+# Make rownames unique BEFORE ComBat/limma so topTable gene names stay consistent
+# (R data frames deduplicate rownames with ".1", ".2" suffixes, so the matrix
+#  must already have unique names to avoid a mismatch between mat_cb rownames
+#  and results$Gene)
+rownames(mat_log) <- make.unique(rownames(mat_log))
+
 cat(sprintf("After ≥50%% per-group filter: %d proteins retained\n", nrow(mat_log)))
 cat(sprintf("PON1 retained: %s | PON2 retained: %s\n\n",
-            ifelse("PON1" %in% rownames(mat_log), "YES", "NO"),
-            ifelse("PON2" %in% rownames(mat_log), "YES", "NO")))
+            ifelse(any(grepl("^PON1", rownames(mat_log))), "YES", "NO"),
+            ifelse(any(grepl("^PON2", rownames(mat_log))), "YES", "NO")))
 
 # ── 8. ComBat batch correction ────────────────────────────────────────────────
 # Impute NAs before ComBat (half-minimum per protein)
@@ -175,9 +181,10 @@ results <- topTable(fit2, coef = "PD_vs_HC", number = Inf, sort.by = "none") %>%
       sig & log2FC < 0 ~ "DOWN",
       TRUE             ~ "NS"
     ),
-    is_PON1 = Gene == "PON1",
-    is_PON2 = Gene == "PON2",
-    is_PON  = Gene %in% c("PON1", "PON2")
+    # grepl matches "PON1", "PON1.1", "PON1.2" ... (make.unique suffixes)
+    is_PON1 = grepl("^PON1(\\.\\d+)?$", Gene),
+    is_PON2 = grepl("^PON2(\\.\\d+)?$", Gene),
+    is_PON  = is_PON1 | is_PON2
   )
 
 cat(sprintf("limma: UP=%d | DOWN=%d (adj.P<0.05, |log2FC|>0.58)\n\n",
@@ -185,7 +192,8 @@ cat(sprintf("limma: UP=%d | DOWN=%d (adj.P<0.05, |log2FC|>0.58)\n\n",
             sum(results$direction == "DOWN")))
 
 for (g in c("PON1", "PON2")) {
-  r <- filter(results, Gene == g)
+  r <- filter(results, grepl(paste0("^", g, "(\\.\\d+)?$"), Gene)) %>%
+    slice_min(pval, n = 1, with_ties = FALSE)
   if (nrow(r) == 0) {
     cat(sprintf("  %s: not detected (filtered)\n", g))
   } else {
@@ -233,36 +241,51 @@ n_pd <- sum(group_labels == "PD")
 # ── Plot 1 : PON1 + PON2 side-by-side boxplot ─────────────────────────────────
 cat("[Plot 1] PON1 & PON2 boxplot\n")
 
-pon_genes_present <- intersect(c("PON1", "PON2"), rownames(mat_cb))
+# For each display name ("PON1"/"PON2"), find the FIRST matching unique rowname
+# e.g. "PON1" matches "PON1" and "PON1.1"; we take the first occurrence.
+find_pon_rowname <- function(mat, display) {
+  hits <- grep(paste0("^", display, "(\\.\\d+)?$"), rownames(mat), value = TRUE)
+  if (length(hits) == 0) NULL else hits[1]
+}
+pon_map <- Filter(Negate(is.null), setNames(
+  lapply(c("PON1", "PON2"), find_pon_rowname, mat = mat_cb),
+  c("PON1", "PON2")
+))
+# pon_map: named list, name = display label, value = actual rowname in mat_cb
 
-if (length(pon_genes_present) == 0) {
+if (length(pon_map) == 0) {
   cat("  Neither PON1 nor PON2 detected — boxplot skipped.\n")
 } else {
-  pon_long <- map_dfr(pon_genes_present, function(g) {
+  pon_long <- map_dfr(names(pon_map), function(display) {
+    rn <- pon_map[[display]]
     tibble(
-      Gene       = g,
-      Expression = as.numeric(mat_cb[g, sample_cols]),
+      Gene       = display,
+      Expression = as.numeric(mat_cb[rn, sample_cols]),
       Group      = factor(group_labels, levels = c("HC", "PD")),
       Batch      = batch_labels
     )
   })
 
   # Per-gene annotation (y positions for significance bracket)
-  pon_annot <- map_dfr(pon_genes_present, function(g) {
-    r   <- filter(results, Gene == g)
-    dat <- filter(pon_long, Gene == g)
+  pon_annot <- map_dfr(names(pon_map), function(display) {
+    rn  <- pon_map[[display]]
+    # results$Gene may be "PON1", "PON1.1", etc. — match by exact rowname
+    r   <- filter(results, Gene == rn) %>%
+           slice_min(pval, n = 1, with_ties = FALSE)
+    if (nrow(r) == 0) return(tibble())   # safety — should not happen after make.unique
+    dat <- filter(pon_long, Gene == display)
     y_max <- max(dat$Expression, na.rm = TRUE)
     rng   <- diff(range(dat$Expression, na.rm = TRUE))
     tibble(
-      Gene      = g,
-      pval      = r$pval,
-      adj_pval  = r$adj_pval,
-      log2FC    = r$log2FC,
+      Gene      = display,
+      pval      = r$pval[1],
+      adj_pval  = r$adj_pval[1],
+      log2FC    = r$log2FC[1],
       y_max     = y_max,
       y_seg     = y_max + rng * 0.08,
       y_lbl     = y_max + rng * 0.20,
       y_lim     = y_max + rng * 0.52,
-      label     = paste0(fmt_pval(r$pval), "\n", fmt_adjp(r$adj_pval)),
+      label     = paste0(fmt_pval(r$pval[1]), "\n", fmt_adjp(r$adj_pval[1])),
       x_label   = 1.5
     )
   })
@@ -344,10 +367,15 @@ color_scale <- c(
   UP   = COL_UP,   DOWN = COL_DOWN, NS = COL_NS
 )
 
+# Pick one representative row per PON gene (lowest p-value) for the label
 pon_vol <- filter(vol_dat, is_PON) %>%
+  mutate(display = case_when(is_PON1 ~ "PON1", is_PON2 ~ "PON2")) %>%
+  group_by(display) %>%
+  slice_min(pval, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
   mutate(
     stat_label = paste0(
-      Gene,
+      display,
       "\nlog2FC = ", sprintf("%+.3f", log2FC), "\n",
       map_chr(pval,     fmt_pval), "\n",
       map_chr(adj_pval, fmt_adjp)
@@ -355,6 +383,9 @@ pon_vol <- filter(vol_dat, is_PON) %>%
     nx = if_else(log2FC < 0, -0.8, 0.8),
     ny = 1.5
   )
+
+pon1_vol <- filter(pon_vol, display == "PON1")
+pon2_vol <- filter(pon_vol, display == "PON2")
 
 p2 <- ggplot(vol_dat, aes(x = log2FC, y = log10p)) +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed",
@@ -365,28 +396,26 @@ p2 <- ggplot(vol_dat, aes(x = log2FC, y = log10p)) +
              aes(color = dot_color, size = dot_size, alpha = dot_alpha)) +
   geom_point(data = filter(vol_dat, is_PON),
              aes(color = dot_color), size = 5.5, alpha = 1.0, shape = 18) +
-  geom_label_repel(
-    data          = filter(pon_vol, Gene == "PON1"),
+  { if (nrow(pon1_vol) > 0) geom_label_repel(
+    data          = pon1_vol,
     aes(label     = stat_label),
     size = 3.8, fontface = "bold",
     fill = "#FFF9E6", color = COL_PON1,
     box.padding = 1.0, point.padding = 0.6,
     segment.color = COL_PON1, segment.size = 0.7,
-    nudge_x = filter(pon_vol, Gene == "PON1")$nx,
-    nudge_y = filter(pon_vol, Gene == "PON1")$ny,
+    nudge_x = pon1_vol$nx, nudge_y = pon1_vol$ny,
     lineheight = 1.4, max.overlaps = Inf
-  ) +
-  geom_label_repel(
-    data          = filter(pon_vol, Gene == "PON2"),
+  ) else NULL } +
+  { if (nrow(pon2_vol) > 0) geom_label_repel(
+    data          = pon2_vol,
     aes(label     = stat_label),
     size = 3.8, fontface = "bold",
     fill = "#FFF3E0", color = COL_PON2,
     box.padding = 1.0, point.padding = 0.6,
     segment.color = COL_PON2, segment.size = 0.7,
-    nudge_x = filter(pon_vol, Gene == "PON2")$nx,
-    nudge_y = filter(pon_vol, Gene == "PON2")$ny,
+    nudge_x = pon2_vol$nx, nudge_y = pon2_vol$ny,
     lineheight = 1.4, max.overlaps = Inf
-  ) +
+  ) else NULL } +
   scale_color_manual(
     values = color_scale,
     breaks = c("UP", "DOWN", "PON1", "PON2", "NS"),
