@@ -48,46 +48,56 @@ sheet_name <- if ("Normalized" %in% all_sheets) {
 cat("Using sheet:", sheet_name, "\n\n")
 
 # ── 3. Read data ──────────────────────────────────────────────────────────────
-# Expected layout (same convention as CSF data.xlsx):
-#   Row 1 : group labels  — first 3 cols empty/metadata, cols 4+ = "PD"/"Healthy"/"Control"
-#   Row 2 : column headers — Accession, Gene Symbol, (optional p-val col), sample IDs
-#   Row 3+: protein rows   (log2-normalized intensities)
+# Layout (CSF data.xlsx convention):
+#   Row 1 : group labels  — first 3 cols = metadata, cols 4+ = "PD"/"Healthy"/etc.
+#   Row 2 : column headers
+#   Row 3+: protein rows  (log2-normalized intensities)
 
-# Step A — read row 1 for group labels
+# Step A — read row 1 for group labels (no header so col positions are exact)
 row1 <- read_excel(INPUT_FILE, sheet = sheet_name,
                    col_names = FALSE, n_max = 1)
 n_cols_total <- ncol(row1)
 
-# Identify which columns carry sample data
-# Sample columns start at position 4 (index 4 to n_cols_total in row1)
-group_raw <- as.character(unlist(row1[1, 4:n_cols_total], use.names = FALSE))
+cat(sprintf("Total columns in sheet: %d\n", n_cols_total))
+cat("Row-1 unique values:", paste(unique(as.character(unlist(row1))), collapse = " | "), "\n\n")
 
-# Normalise label names → "Healthy" / "PD"
-group_labels <- group_raw
-group_labels[group_labels %in% c("Control", "HC", "Normal")] <- "Healthy"
-group_labels[group_labels %in% c("PD", "Parkinson")] <- "PD"
+# All values in row 1 (full row, not just cols 4+)
+row1_all <- as.character(unlist(row1[1, ], use.names = FALSE))
 
-# Keep only columns that are "Healthy" or "PD"
-valid_idx  <- which(group_labels %in% c("Healthy", "PD"))   # relative to cols 4..n
-groups_vec <- group_labels[valid_idx]
+# Normalise group labels regardless of position
+LABEL_MAP <- c(
+  "Control" = "Healthy", "HC" = "Healthy", "Normal" = "Healthy",
+  "healthy" = "Healthy", "control" = "Healthy", "hc" = "Healthy",
+  "PD" = "PD", "Parkinson" = "PD", "pd" = "PD", "parkinson" = "PD"
+)
+row1_norm <- dplyr::recode(row1_all, !!!LABEL_MAP)
+
+# Identify ALL sample columns (any column whose row-1 label is Healthy or PD)
+valid_idx  <- which(row1_norm %in% c("Healthy", "PD"))
+groups_vec <- row1_norm[valid_idx]
 groups     <- factor(groups_vec, levels = c("Healthy", "PD"))
 
-cat(sprintf("Groups detected — Healthy: %d  PD: %d\n",
-            sum(groups == "Healthy"), sum(groups == "PD")))
+cat(sprintf("Groups detected — Healthy: %d  PD: %d  (out of %d total cols)\n",
+            sum(groups == "Healthy"), sum(groups == "PD"), n_cols_total))
 
-# Step B — read protein data (row 2 becomes the header)
+if (length(valid_idx) == 0) {
+  stop(paste0(
+    "No group labels ('Healthy'/'Control'/'HC'/'PD') found in row 1.\n",
+    "Row-1 contents: ", paste(row1_all, collapse = " | ")
+  ))
+}
+
+# Step B — protein data (row 2 → header)
 raw <- read_excel(INPUT_FILE, sheet = sheet_name, skip = 1)
-cat(sprintf("Proteins loaded: %d\n", nrow(raw)))
+cat(sprintf("Proteins loaded: %d  |  Columns after skip: %d\n", nrow(raw), ncol(raw)))
 
-# Metadata: col 1 = Accession, col 2 = Gene Symbol  (positional, encoding-safe)
+# Metadata: col 1 = Accession, col 2 = Gene Symbol (positional)
 accessions   <- as.character(raw[[1]])
 gene_symbols <- as.character(raw[[2]])
 
-# All sample columns start at position 4
-all_sample_cols <- names(raw)[4:n_cols_total]
-
-# Keep only the "Healthy"/"PD"-labelled sample columns
-sample_cols <- all_sample_cols[valid_idx]
+# Map valid_idx (1-based in row1) → column names in raw
+# raw has same column order as row1 (read_excel adds header from row 2 = skip 1)
+sample_cols <- names(raw)[valid_idx]
 stopifnot(length(sample_cols) == length(groups_vec))
 
 cat(sprintf("Sample columns used: %d  |  Group labels: %d\n\n",
@@ -96,15 +106,38 @@ cat(sprintf("Sample columns used: %d  |  Group labels: %d\n\n",
 # ── 4. Expression matrix ──────────────────────────────────────────────────────
 mat <- as.matrix(raw[, sample_cols])
 storage.mode(mat) <- "numeric"
-rownames(mat) <- seq_len(nrow(mat))   # integer row names → no collision/dedup issues
+rownames(mat) <- seq_len(nrow(mat))
 
-# Remove proteins with any NA
-keep      <- rowSums(is.na(mat)) == 0
+cat(sprintf("NA summary: %d proteins with ≥1 NA  |  %d fully complete\n",
+            sum(rowSums(is.na(mat)) > 0),
+            sum(rowSums(is.na(mat)) == 0)))
+
+# ── NA filter: keep proteins observed in ≥50% of samples in EACH group ────────
+min_obs_frac <- 0.50
+hc_idx <- which(groups == "Healthy")
+pd_idx <- which(groups == "PD")
+min_hc <- ceiling(length(hc_idx) * min_obs_frac)
+min_pd <- ceiling(length(pd_idx) * min_obs_frac)
+
+keep <- (rowSums(!is.na(mat[, hc_idx, drop = FALSE])) >= min_hc) &
+        (rowSums(!is.na(mat[, pd_idx, drop = FALSE])) >= min_pd)
+
+cat(sprintf("After ≥50%% per-group filter: %d / %d proteins retained\n",
+            sum(keep), nrow(mat)))
+
 mat       <- mat[keep, ]
 acc_keep  <- accessions[keep]
 gene_keep <- gene_symbols[keep]
 
-cat(sprintf("After NA removal: %d proteins retained\n", nrow(mat)))
+# Impute remaining NAs with the per-protein minimum observed value / 2
+# (standard left-censored / MNAR approach for proteomics)
+for (i in seq_len(nrow(mat))) {
+  na_pos <- is.na(mat[i, ])
+  if (any(na_pos)) {
+    mat[i, na_pos] <- min(mat[i, !na_pos], na.rm = TRUE) / 2
+  }
+}
+
 cat(sprintf("PON1 in set: %s | PON2 in set: %s\n\n",
             ifelse("PON1" %in% gene_keep, "YES", "NO"),
             ifelse("PON2" %in% gene_keep, "YES", "NO")))
