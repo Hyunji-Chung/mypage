@@ -79,7 +79,11 @@ if (is.na(gene_col)) {
   stop("Gene symbol column not found. Edit gene_col_candidates above.")
 }
 cat("Gene column:", gene_col, "\n\n")
-genes <- as.character(raw[[gene_col]])
+genes_raw <- as.character(raw[[gene_col]])
+# Clean NA / empty entries immediately so they never become NA matrix rownames
+bad_gene  <- is.na(genes_raw) | trimws(genes_raw) == "" | genes_raw == "NA"
+genes_raw[bad_gene] <- paste0("Unknown_", seq_along(genes_raw)[bad_gene])
+genes <- make.unique(genes_raw)   # globally unique before any matrix assignment
 
 # ── 6. Per-batch MP normalisation → log2 ─────────────────────────────────────
 norm_list <- list()
@@ -128,12 +132,8 @@ min_pd <- ceiling(length(pd_idx) * 0.50)
 
 keep_rows <- (rowSums(!is.na(mat_log[, hc_idx, drop = FALSE])) >= min_hc) &
              (rowSums(!is.na(mat_log[, pd_idx, drop = FALSE])) >= min_pd)
-mat_log   <- mat_log[keep_rows, ]
-# Replace NA / empty gene names before make.unique so topTable never sees NA rownames
-rn_raw <- rownames(mat_log)
-rn_raw[is.na(rn_raw) | rn_raw == "" | rn_raw == "NA"] <-
-  paste0("Unknown_", which(is.na(rn_raw) | rn_raw == "" | rn_raw == "NA"))
-rownames(mat_log) <- make.unique(rn_raw)
+mat_log <- mat_log[keep_rows, ]
+# rownames are already clean & unique (set from make.unique(genes) above)
 
 cat(sprintf("After ≥50%% per-group filter: %d proteins retained\n", nrow(mat_log)))
 cat(sprintf("PON1 retained: %s | PON2 retained: %s\n\n",
